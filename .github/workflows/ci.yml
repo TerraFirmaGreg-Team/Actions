@@ -18,7 +18,7 @@ jobs:
           fetch-depth: 0
 
       - name: Run actionlint
-        uses: rhysd/actionlint@v1
+        uses: rhysd/actionlint@v1.7.8
 
       - name: Validate README references
         shell: python

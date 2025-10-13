@@ -1,0 +1,71 @@
+name: "📣 Send Discord Notification"
+description: "Отправка уведомления о релизе в Discord"
+
+inputs:
+  enabled:
+    description: "Включить отправку"
+    required: false
+    default: true
+  webhook_secret:
+    description: "Имя секрета с webhook URL"
+    required: true
+  username:
+    description: "Имя отправителя"
+    required: false
+    default: TerraFirmaGreg
+  avatar_url:
+    description: "Аватар"
+    required: false
+    default: https://raw.githubusercontent.com/TerraFirmaGreg-Team/.github/main/branding/logo.png
+  content:
+    description: "Основной текст"
+    required: true
+  embed_title:
+    description: "Заголовок embed"
+    required: false
+    default: ""
+  embed_description:
+    description: "Описание embed"
+    required: false
+    default: ""
+  mention_role_id:
+    description: "ID роли для упоминания"
+    required: false
+    default: ""
+  truncate_length:
+    description: "Обрезать контент до N символов"
+    required: false
+    default: 0
+
+runs:
+  using: "composite"
+  steps:
+    - name: "🛑 Skip check"
+      id: guard
+      shell: bash
+      run: |
+        if [ "${{ inputs.enabled }}" != "true" ]; then
+          echo "skip=true" >> $GITHUB_OUTPUT
+        fi
+
+    - name: "✂️ Truncate content"
+      if: ${{ steps.guard.outputs.skip != 'true' && inputs.truncate_length != '0' }}
+      id: trunc
+      uses: cisox/read-more-action@v1.0.2
+      with:
+        text: ${{ inputs.content }}
+        max_chars: ${{ inputs.truncate_length }}
+
+    - name: "📨 Send Discord message"
+      if: ${{ steps.guard.outputs.skip != 'true' }}
+      uses: hugoalh/send-discord-webhook-ghaction@v7.0.5
+      with:
+        key: ${{ secrets[inputs.webhook_secret] }}
+        username: ${{ inputs.username }}
+        avatar_url: ${{ inputs.avatar_url }}
+        allowed_mentions_parse_roles: ${{ inputs.mention_role_id != '' }}
+        content: |
+          ${{ inputs.mention_role_id != '' && format('<@&{0}>', inputs.mention_role_id) || '' }}
+          ${{ steps.trunc.outputs.text || inputs.content }}
+        embed_title: ${{ inputs.embed_title }}
+        embed_description: ${{ inputs.embed_description }}

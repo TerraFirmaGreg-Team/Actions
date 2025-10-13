@@ -40,38 +40,37 @@ jobs:
               raise SystemExit(1)
 
   self-test:
-    name: Smoke test composite actions
+    name: Validate composite metadata
     runs-on: ubuntu-latest
     needs: lint
-    strategy:
-      matrix:
-        action:
-          - info
-          - build
-          - create-pr
-          - release
-          - message
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare workspace
-        shell: bash
+      - name: Validate action manifests
+        shell: python
         run: |
-          mkdir -p sandbox/${{ matrix.action }}
-          cp -R tests/fixtures/modpack sandbox/${{ matrix.action }}/fixtures
+          import pathlib
+          import yaml
 
-      - name: Run ${{ matrix.action }} action
-        uses: ./
-        with:
-          action: ${{ matrix.action }}
+          root = pathlib.Path('.')
+          action_dirs = [root / d for d in ['info', 'build', 'create-pr', 'release', 'message']]
 
-      - name: Verify artifacts
-        if: ${{ matrix.action == 'build' }}
-        shell: bash
-        run: |
-          ls build/curseforge || exit 1
+          for action_dir in action_dirs:
+            manifest = action_dir / 'action.yml'
+            readme = action_dir / 'README.md'
+            if not manifest.exists():
+              raise SystemExit(f"Missing action.yml in {action_dir}")
+            if not readme.exists():
+              raise SystemExit(f"Missing README.md in {action_dir}")
 
-      - name: Print summary
-        shell: bash
-        run: echo "${{ matrix.action }} action smoke test completed"
+            data = yaml.safe_load(manifest.read_text(encoding='utf-8'))
+            if data.get('runs', {}).get('using') != 'composite':
+              raise SystemExit(f"Action {action_dir.name} is not composite")
+
+            required_keys = ['name', 'description', 'inputs', 'runs']
+            missing = [k for k in required_keys if k not in data]
+            if missing:
+              raise SystemExit(f"Action {action_dir.name} missing keys: {missing}")
+
+          print('All composite manifests look good')

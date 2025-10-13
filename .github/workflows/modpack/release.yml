@@ -1,4 +1,4 @@
-name: Release Modpack
+name: 🚀 Release Modpack
 
 on:
   workflow_call:

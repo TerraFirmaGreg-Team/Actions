@@ -1,4 +1,4 @@
-name: Collect Modpack Info
+name: 🖥️ Collect Modpack Info
 
 on:
   workflow_call:
@@ -246,3 +246,22 @@ jobs:
             echo "$changelog_payload"
             echo EOF
           } >> $GITHUB_OUTPUT
+
+      - name: 📝 GitHub Summary
+        uses: WcAServices/markdown-template-action@v1.1.1
+        with:
+          template: |
+            📃 **Name**: ${{ steps.meta.outputs.project_name }}
+            📃 **Release**: `${{ steps.meta.outputs.project_version }}`
+            📃 **Release Type**: `${{ steps.meta.outputs.release_type }}`
+            📃 **Game Version**: `${{ steps.meta.outputs.minecraft_version }}`
+            📃 **Loader Type**: `${{ steps.meta.outputs.loader_type }}`
+            📃 **Loader Version**: `${{ steps.meta.outputs.loader_version }}`
+
+            📃 **Dev Environment**: `${{ env.DEV_ENVIRONMENT }}`
+            📃 **Tag Exists**: `${{ steps.tag_check.outputs.exists }}`
+            📃 **Make Pull Request**: `${{ steps.meta.outputs.make_pr }}`
+            📃 **Make Release**: `${{ steps.meta.outputs.make_release }}`
+
+            ${{ steps.collect_changelog_dev.outputs.description }}
+            ${{ steps.read_diff.outputs.diff }}

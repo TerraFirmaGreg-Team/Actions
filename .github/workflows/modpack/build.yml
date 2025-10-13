@@ -1,4 +1,4 @@
-name: Build Modpack Artifacts
+name: 📦 Build Modpack Artifacts
 
 on:
   workflow_call:

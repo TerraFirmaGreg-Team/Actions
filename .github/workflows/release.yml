@@ -1,0 +1,62 @@
+name: Release Actions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'info/**'
+      - 'build/**'
+      - 'create-pr/**'
+      - 'release/**'
+      - 'message/**'
+      - 'README.md'
+      - 'docs/**'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Publish release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: tag
+        uses: anothrNick/github-tag-action@1.67.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WITH_V: false
+          DEFAULT_BUMP: patch
+          RELEASE_BRANCHES: main
+
+      - name: Generate release notes
+        id: notes
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const tag = core.getInput('tag');
+            const { data: notes } = await github.rest.repos.generateReleaseNotes({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              target_commitish: context.sha,
+              previous_tag_name: '${{ steps.tag.outputs.new_tag }}'
+            });
+            core.setOutput('notes', notes.body ?? 'Automated release');
+          result-encoding: string
+          tag: ${{ steps.tag.outputs.new_tag }}
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.new_tag }}
+          name: ${{ steps.tag.outputs.new_tag }}
+          body: ${{ steps.notes.outputs.notes }}
+          generate_release_notes: false

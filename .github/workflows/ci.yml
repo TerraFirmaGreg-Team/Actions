@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint actions and docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run actionlint
+        uses: rhysd/actionlint@v1
+
+      - name: Validate README references
+        shell: python
+        run: |
+          import pathlib
+          import re
+
+          repo = pathlib.Path('.')
+          readmes = [repo / "README.md"] + list(repo.glob("*/README.md"))
+          pattern = re.compile(r"TerraFirmaGreg-Team/Actions-[^/]+/")
+          bad = []
+          for readme in readmes:
+              text = readme.read_text(encoding="utf-8")
+              for match in pattern.findall(text):
+                  bad.append((readme, match))
+          if bad:
+              for readme, match in bad:
+                  print(f"Found legacy reference '{match}' in {readme}")
+              raise SystemExit(1)
+
+  self-test:
+    name: Smoke test composite actions
+    runs-on: ubuntu-latest
+    needs: lint
+    strategy:
+      matrix:
+        action:
+          - info
+          - build
+          - create-pr
+          - release
+          - message
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare workspace
+        shell: bash
+        run: |
+          mkdir -p sandbox/${{ matrix.action }}
+          cp -R tests/fixtures/modpack sandbox/${{ matrix.action }}/fixtures
+
+      - name: Run ${{ matrix.action }} action
+        uses: ./
+        with:
+          action: ${{ matrix.action }}
+
+      - name: Verify artifacts
+        if: ${{ matrix.action == 'build' }}
+        shell: bash
+        run: |
+          ls build/curseforge || exit 1
+
+      - name: Print summary
+        shell: bash
+        run: echo "${{ matrix.action }} action smoke test completed"

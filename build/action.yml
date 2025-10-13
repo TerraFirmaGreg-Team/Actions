@@ -88,13 +88,13 @@ runs:
       shell: bash
       run: |
         node - <<'NODE'
-const fs = require('fs');
-const path = 'groovy/runConfig.json';
-if (!fs.existsSync(path)) process.exit(0);
-const data = JSON.parse(fs.readFileSync(path, 'utf8'));
-data.debug = false;
-fs.writeFileSync(path, JSON.stringify(data, null, 2));
-NODE
+        const fs = require('fs');
+        const path = 'groovy/runConfig.json';
+        if (!fs.existsSync(path)) process.exit(0);
+        const data = JSON.parse(fs.readFileSync(path, 'utf8'));
+        data.debug = false;
+        fs.writeFileSync(path, JSON.stringify(data, null, 2));
+        NODE
 
     - name: "📦 Export modpack"
       id: export_modpack

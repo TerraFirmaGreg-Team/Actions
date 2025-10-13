@@ -1,0 +1,65 @@
+name: Send Discord Notification
+
+on:
+  workflow_call:
+    inputs:
+      enabled:
+        type: boolean
+        default: true
+      webhook_secret:
+        description: "Имя секрета с webhook URL"
+        type: string
+        required: true
+      username:
+        type: string
+        default: TerraFirmaGreg
+      avatar_url:
+        type: string
+        default: https://raw.githubusercontent.com/TerraFirmaGreg-Team/.github/main/branding/logo.png
+      content:
+        description: "Основной текст сообщения"
+        type: string
+        required: true
+      embed_title:
+        type: string
+        default: ""
+      embed_description:
+        type: string
+        default: ""
+      mention_role_id:
+        description: "ID роли для упоминания"
+        type: string
+        default: ""
+      truncate_length:
+        description: "Обрезать контент до указанной длины" 
+        type: number
+        default: 0
+    secrets:
+      webhook_secret:
+        required: true
+
+jobs:
+  notify:
+    if: inputs.enabled
+    runs-on: ubuntu-latest
+    steps:
+      - name: ✂️ Truncate content
+        id: trunc
+        if: inputs.truncate_length > 0
+        uses: cisox/read-more-action@v1.0.2
+        with:
+          text: ${{ inputs.content }}
+          max_chars: ${{ inputs.truncate_length }}
+
+      - name: 📨 Send Discord message
+        uses: hugoalh/send-discord-webhook-ghaction@v7.0.5
+        with:
+          key: ${{ secrets[inputs.webhook_secret] }}
+          username: ${{ inputs.username }}
+          avatar_url: ${{ inputs.avatar_url }}
+          allowed_mentions_parse_roles: ${{ inputs.mention_role_id != '' }}
+          content: |
+            ${{ inputs.mention_role_id != '' && format('<@&{0}>', inputs.mention_role_id) || '' }}
+            ${{ steps.trunc.outputs.text || inputs.content }}
+          embed_title: ${{ inputs.embed_title }}
+          embed_description: ${{ inputs.embed_description }}

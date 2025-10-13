@@ -1,0 +1,206 @@
+name: Release Modpack
+
+on:
+  workflow_call:
+    inputs:
+      enabled:
+        type: boolean
+        default: true
+      project_full_name:
+        type: string
+        required: true
+      project_version:
+        type: string
+        required: true
+      release_type:
+        type: string
+        default: release
+      changelog:
+        type: string
+        default: ""
+      diff:
+        type: string
+        default: ""
+      mc_version:
+        type: string
+        default: unknown
+      enable_release_github:
+        type: boolean
+        default: true
+      enable_release_curseforge:
+        type: boolean
+        default: true
+      enable_release_modrinth:
+        type: boolean
+        default: false
+      curseforge_slug:
+        type: string
+        default: ""
+      modrinth_project_id:
+        type: string
+        default: ""
+      close_issues_label:
+        type: string
+        default: ""
+      close_issues_comment:
+        type: string
+        default: ""
+    outputs:
+      github_release_url:
+        value: ${{ jobs.github.outputs.release_url }}
+      curseforge_file_id:
+        value: ${{ jobs.curseforge.outputs.file_id }}
+      modrinth_release_id:
+        value: ${{ jobs.modrinth.outputs.release_id }}
+
+jobs:
+  github:
+    name: 🚀 GitHub Release
+    runs-on: ubuntu-latest
+    if: inputs.enabled && inputs.enable_release_github
+    outputs:
+      release_url: ${{ steps.release.outputs.url }}
+    steps:
+      - name: 📦 Checkout
+        uses: actions/checkout@v5.0.0
+
+      - name: 📦 Download artifacts
+        uses: actions/download-artifact@v5.0.0
+        with:
+          merge-multiple: true
+
+      - name: 🧾 Collect release files
+        id: collect
+        shell: bash
+        env:
+          NAME: ${{ inputs.project_full_name }}
+        run: |
+          set -eo pipefail
+          files=()
+          for candidate in "${NAME}-curseforge.zip" "${NAME}-modrinth.mrpack" "${NAME}-serverpack.zip" "${NAME}-multimc.zip"; do
+            if [[ -f "$candidate" ]]; then
+              files+=("$candidate")
+            fi
+          done
+
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "::warning::No artifacts found for release"
+          fi
+
+          {
+            echo 'list<<EOF'
+            printf '%s\n' "${files[@]}"
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 🔒 Close issues
+        if: inputs.close_issues_label != ''
+        uses: Xikaro/close-issues-based-on-label@master
+        env:
+          LABEL: ${{ inputs.close_issues_label }}
+          COMMENT: ${{ inputs.close_issues_comment }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📄 Format diff
+        id: diff
+        if: ${{ inputs.diff != '' }}
+        uses: roamingowl/template-output-with-eta@v2.0.0
+        with:
+          template: |
+            ```markdown
+            ${{ inputs.diff }}
+            ```
+
+      - name: 🚀 Release
+        id: release
+        uses: softprops/action-gh-release@v2.3.4
+        with:
+          name: ${{ inputs.project_version }}
+          tag_name: ${{ inputs.project_version }}
+          body: |
+            ${{ inputs.changelog }}
+            ${{ steps.diff.outputs.text }}
+          prerelease: ${{ inputs.release_type != 'release' }}
+          generate_release_notes: true
+          files: ${{ steps.collect.outputs.list }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  curseforge:
+    name: 🚀 CurseForge
+    runs-on: ubuntu-latest
+    if: inputs.enabled && inputs.enable_release_curseforge
+    outputs:
+      file_id: ${{ steps.release.outputs.id }}
+    steps:
+      - name: 📦 Download artifacts
+        uses: actions/download-artifact@v5.0.0
+        with:
+          merge-multiple: true
+
+      - name: 🔒 Validate secrets
+        shell: bash
+        run: |
+          [[ -n "${{ secrets.CURSEFORGE_TOKEN }}" ]] || { echo '::error::Secret CURSEFORGE_TOKEN is missing'; exit 1; }
+          [[ -n "${{ vars.CURSEFORGE_ID }}" ]] || { echo '::error::Variable CURSEFORGE_ID is missing'; exit 1; }
+
+      - name: ✅ Ensure files exist
+        shell: bash
+        run: |
+          [[ -f "${{ inputs.project_full_name }}-curseforge.zip" ]] || { echo '::error::missing curseforge artifact'; exit 1; }
+          [[ -f "${{ inputs.project_full_name }}-serverpack.zip" ]] || { echo '::error::missing serverpack artifact'; exit 1; }
+
+      - name: 🚀 Upload to CurseForge
+        id: release
+        uses: Xikaro/upload-curseforge-modpack-action@1.1.1
+        with:
+          api-token: ${{ secrets.CURSEFORGE_TOKEN }}
+          project-id: ${{ vars.CURSEFORGE_ID }}
+          display-name: ${{ inputs.project_full_name }}
+          modpack-path: ${{ inputs.project_full_name }}-curseforge.zip
+          server-display-name: ${{ inputs.project_full_name }}-serverpack
+          modpack-server-path: ${{ inputs.project_full_name }}-serverpack.zip
+          changelog: |
+            ${{ inputs.changelog }}
+            ${{ inputs.diff }}
+          changelog-format: markdown
+          game-version: ${{ inputs.mc_version }}
+          release-type: ${{ inputs.release_type }}
+
+  modrinth:
+    name: 🚀 Modrinth
+    runs-on: ubuntu-latest
+    if: inputs.enabled && inputs.enable_release_modrinth
+    outputs:
+      release_id: ${{ steps.release.outputs.id }}
+    steps:
+      - name: 📦 Download artifacts
+        uses: actions/download-artifact@v5.0.0
+        with:
+          merge-multiple: true
+
+      - name: 🔒 Validate secrets
+        shell: bash
+        run: |
+          [[ -n "${{ secrets.MODRINTH_TOKEN }}" ]] || { echo '::error::Secret MODRINTH_TOKEN is missing'; exit 1; }
+          [[ -n "${{ inputs.modrinth_project_id }}" ]] || { echo '::error::Input modrinth_project_id is missing'; exit 1; }
+
+      - name: ✅ Ensure modrinth artifact exists
+        shell: bash
+        run: |
+          [[ -f "${{ inputs.project_full_name }}-modrinth.mrpack" ]] || { echo '::error::missing modrinth artifact'; exit 1; }
+
+      - name: 🚀 Upload to Modrinth
+        id: release
+        uses: tbolt/post-to-modrinth@v1.0.3
+        with:
+          token: ${{ secrets.MODRINTH_TOKEN }}
+          name: ${{ inputs.project_full_name }}
+          version-number: ${{ inputs.project_version }}
+          project-id: ${{ inputs.modrinth_project_id }}
+          file-path: ${{ inputs.project_full_name }}-modrinth.mrpack
+          changelog: ${{ inputs.changelog }}
+          loaders: |
+            fabric
+          game-versions: ${{ inputs.mc_version }}
+          release-type: ${{ inputs.release_type }}

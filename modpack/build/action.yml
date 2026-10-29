@@ -176,12 +176,10 @@ runs:
 
     - name: "Zip MultiMC"
       if: ${{ inputs.artifact_multimc == 'true' }}
-      uses: vimtor/action-zip@v1.2
-      with:
-        files: icon.png mmc-pack.json instance.cfg .minecraft/ flame/
-        dest: ${{ inputs.project_full_name }}-multimc.zip
-        recursive: true
-        working-directory: build/multimc
+      shell: bash
+      run: |
+        cd build/multimc
+        zip -r "${{ inputs.project_full_name }}-multimc.zip" icon.png mmc-pack.json instance.cfg .minecraft flame
 
     - name: "Upload MultiMC artifact"
       if: ${{ inputs.artifact_multimc == 'true' }}

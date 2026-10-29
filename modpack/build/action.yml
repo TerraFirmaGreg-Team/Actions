@@ -85,12 +85,16 @@ runs:
           return 0
         }
         while read -r p; do
-          [ -n "$p" ] && repl "DEV" "${{ inputs.project_version }}" $p
+          if [ -n "$p" ]; then
+            repl "DEV" "${{ inputs.project_version }}" $p
+          fi
         done <<< '${{ inputs.version_files }}'
         while read -r p; do
-          [ -n "$p" ] && repl "LOADER_VERSION" "${{ inputs.loader_version }}" $p
-          [ -n "$p" ] && repl "LOADER_TYPE" "${{ inputs.loader_type }}" $p
-          [ -n "$p" ] && repl "MINECRAFT_VERSION" "${{ inputs.mc_version }}" $p
+          if [ -n "$p" ]; then
+            repl "LOADER_VERSION" "${{ inputs.loader_version }}" $p
+            repl "LOADER_TYPE" "${{ inputs.loader_type }}" $p
+            repl "MINECRAFT_VERSION" "${{ inputs.mc_version }}" $p
+          fi
         done <<< '${{ inputs.loader_files }}'
 
     - name: "Copy server icon"

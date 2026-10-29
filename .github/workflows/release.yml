@@ -66,13 +66,4 @@ jobs:
           body: ${{ steps.notes.outputs.notes }}
           generate_release_notes: false
 
-      - name: Update floating tags
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          tag="${{ steps.tag.outputs.new_tag }}"
-          major="${tag%%.*}"
-          minor="${tag%.*}"
-          git tag -fa "$major" -m "Update $major to $tag"
-          git tag -fa "$minor" -m "Update $minor to $tag"
-          git push -f origin "$major" "$minor"
+

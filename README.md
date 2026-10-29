@@ -10,6 +10,6 @@ Composite GitHub Actions for TerraFirmaGreg-Team.
 | `crowdin/` | `sync`, `postprocess` |
 | `discord/` | webhook send |
 
-Usage: `uses: TerraFirmaGreg-Team/Actions/<dir>/<name>@main` (`@1` / `@1.x.y` after release).
+Usage: `uses: TerraFirmaGreg-Team/Actions/<dir>/<name>@main` (or `@x.y.z` release tag).
 
 Secrets/vars must be passed via inputs.

@@ -142,7 +142,10 @@ runs:
           project_version="$CHANGELOG_VERSION"
         fi
 
-        make_release=$([ "$TAG_EXISTS" = "false" ] && [ "$dev_env" = "false" ] && echo true || echo false)
+        is_released=true
+        grep -m1 -E "^##.*${CHANGELOG_VERSION}" "${{ inputs.changelog_path }}" | grep -qi "unreleased" && is_released=false
+
+        make_release=$([ "$TAG_EXISTS" = "false" ] && [ "$dev_env" = "false" ] && [ "$is_released" = "true" ] && echo true || echo false)
         make_pr=$([ "$TAG_EXISTS" = "false" ] && [ "$dev_env" = "true" ] && echo true || echo false)
 
         echo "project_name=$PROJECT_NAME" >> "$GITHUB_OUTPUT"

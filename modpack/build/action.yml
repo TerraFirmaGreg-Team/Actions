@@ -82,6 +82,7 @@ runs:
           for f in $*; do
             [ -f "$f" ] && sed -i -e "s|${find}|${repl}|g" "$f"
           done
+          return 0
         }
         while read -r p; do
           [ -n "$p" ] && repl "DEV" "${{ inputs.project_version }}" $p

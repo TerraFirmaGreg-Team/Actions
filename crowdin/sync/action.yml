@@ -57,7 +57,7 @@ runs:
   using: "composite"
   steps:
     - name: "Crowdin"
-      uses: crowdin/github-action@v3
+      uses: crowdin/github-action@v3.5.0
       with:
         upload_sources: ${{ inputs.upload_sources }}
         upload_sources_args: ${{ inputs.upload_sources_args }}

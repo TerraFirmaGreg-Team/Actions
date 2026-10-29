@@ -80,6 +80,6 @@ runs:
     - name: "Read diff"
       id: read_diff
       if: ${{ steps.previous_lock.outputs.available == 'true' }}
-      uses: juliangruber/read-file-action@v1
+      uses: juliangruber/read-file-action@v1.1.8
       with:
         path: ${{ inputs.output_path }}

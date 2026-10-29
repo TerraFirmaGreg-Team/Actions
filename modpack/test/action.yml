@@ -1,5 +1,5 @@
 name: "Modpack: Test"
-description: "HeadlessMC client smoke test"
+description: "HeadlessMC client smoke test; PR comment on failure"
 
 inputs:
   mc_version:
@@ -51,7 +51,7 @@ runs:
   using: "composite"
   steps:
     - name: "Checkout"
-      uses: actions/checkout@v7
+      uses: actions/checkout@v7.0.1
 
     - name: "Download pakku.jar"
       if: ${{ inputs.pack_artifact == '' && inputs.pakku_jar == 'download' }}
@@ -63,7 +63,7 @@ runs:
 
     - name: "Download built pack"
       if: ${{ inputs.pack_artifact != '' }}
-      uses: actions/download-artifact@v8.0.1
+      uses: actions/download-artifact@v8.0.2
       with:
         name: ${{ inputs.pack_artifact }}
         path: pack
@@ -77,7 +77,7 @@ runs:
 
     - name: "Cache pakku"
       if: ${{ inputs.pack_artifact == '' }}
-      uses: actions/cache@v6
+      uses: actions/cache@v6.1.0
       with:
         path: build/.cache
         key: pakku-cache-${{ hashFiles('pakku-lock.json') }}
@@ -85,7 +85,7 @@ runs:
 
     - name: "Cache mods"
       if: ${{ inputs.pack_artifact == '' }}
-      uses: actions/cache@v6
+      uses: actions/cache@v6.1.0
       with:
         path: ${{ inputs.mods_path }}
         key: mods-${{ hashFiles('pakku-lock.json') }}
@@ -107,7 +107,7 @@ runs:
         cp -rf pack-unzip/.minecraft/. run/
 
     - name: "Runtime test"
-      uses: headlesshq/mc-runtime-test@main
+      uses: headlesshq/mc-runtime-test@5.0.0
       with:
         mc: ${{ inputs.mc_version }}
         modloader: ${{ inputs.loader_type }}
@@ -119,10 +119,38 @@ runs:
 
     - name: "Upload logs"
       if: ${{ always() && inputs.artifact_logs == 'true' }}
-      uses: actions/upload-artifact@v7.0.1
+      uses: actions/upload-artifact@v7.0.2
       with:
         name: ${{ inputs.artifact_prefix }}-logs
         path: |
           run/logs/
           run/crash-reports/
         if-no-files-found: warn
+
+    - name: "Collect failure details"
+      if: ${{ failure() && github.event_name == 'pull_request' }}
+      shell: bash
+      run: |
+        {
+          echo '### Runtime test failed'
+          echo '```'
+          crash=$(ls -t run/crash-reports/*.txt 2>/dev/null | head -1)
+          if [ -n "$crash" ]; then
+            head -80 "$crash"
+          elif [ -f run/logs/latest.log ]; then
+            tail -80 run/logs/latest.log
+          else
+            echo 'No crash report or latest.log. See attached logs.'
+          fi
+          echo '```'
+        } > pr-comment.md
+
+    - name: "Comment PR on failure"
+      if: ${{ failure() && github.event_name == 'pull_request' }}
+      uses: mshick/add-pr-comment@v3.12.0
+      with:
+        message-path: pr-comment.md
+        message-id: runtime-test
+        attach-path: run/logs/
+        attach-name: ${{ inputs.artifact_prefix }}-logs
+        attach-text: '[Download full logs](%ARTIFACT_URL%)'

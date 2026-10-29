@@ -35,12 +35,12 @@ runs:
   using: "composite"
   steps:
     - name: "Checkout"
-      uses: actions/checkout@v7
+      uses: actions/checkout@v7.0.1
       with:
         fetch-depth: 0
 
     - name: "Check required files"
-      uses: andstor/file-existence-action@v3
+      uses: andstor/file-existence-action@v3.1.0
       with:
         fail: true
         ignore_case: true

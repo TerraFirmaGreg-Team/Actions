@@ -1,0 +1,63 @@
+name: "Modpack: Discord Release"
+description: "Release notification with links to Discord"
+
+inputs:
+  webhook_key:
+    description: "Webhook secret"
+    required: true
+  project_version:
+    required: true
+  project_full_name:
+    required: true
+  release_type:
+    required: true
+  mc_version:
+    required: true
+  changelog:
+    required: false
+    default: ""
+  curseforge_url:
+    required: false
+    default: ""
+  github_tag:
+    required: false
+    default: ""
+  github_url:
+    required: false
+    default: ""
+  truncate_chars:
+    required: false
+    default: "1400"
+  username:
+    required: false
+    default: "TerraFirmaGreg"
+  avatar_url:
+    required: false
+    default: "https://raw.githubusercontent.com/TerraFirmaGreg-Team/.github/main/branding/logo.png"
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Truncate changelog"
+      id: truncated
+      uses: cisox/read-more-action@v1.0.2
+      with:
+        text: ${{ inputs.changelog }}
+        max_chars: ${{ inputs.truncate_chars }}
+
+    - name: "Send"
+      uses: TerraFirmaGreg-Team/Actions/discord@main
+      with:
+        webhook_key: ${{ inputs.webhook_key }}
+        username: ${{ inputs.username }}
+        avatar_url: ${{ inputs.avatar_url }}
+        content: |
+          **Release**: `${{ inputs.project_version }}`
+          **Release Type**: `${{ inputs.release_type }}`
+          **Game Version**: `${{ inputs.mc_version }}`
+
+          [CurseForge](${{ inputs.curseforge_url }}) • [ServerPack](https://github.com/${{ github.repository }}/releases/download/${{ inputs.github_tag }}/${{ inputs.project_full_name }}-serverpack.zip) • [GitHub](${{ inputs.github_url }}) • [Issues](https://github.com/${{ github.repository }}/issues)
+          ```markdown
+          ${{ steps.truncated.outputs.text }}
+          - ...```
+          ** [Read more...](${{ inputs.github_url }}) **

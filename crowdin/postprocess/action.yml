@@ -19,7 +19,7 @@ runs:
   using: "composite"
   steps:
     - name: "Checkout translations branch"
-      uses: actions/checkout@v7
+      uses: actions/checkout@v7.0.1
       with:
         ref: ${{ inputs.localization_branch }}
         fetch-depth: 0
@@ -40,7 +40,7 @@ runs:
           -exec sh -c 'jq -e "keys | length == 0" "$1" >/dev/null 2>&1 && rm "$1"' _ {} \;
 
     - name: "Commit changes"
-      uses: stefanzweifel/git-auto-commit-action@v7
+      uses: stefanzweifel/git-auto-commit-action@v7.2.1
       with:
         commit_message: ${{ inputs.commit_message }}
         commit_author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>

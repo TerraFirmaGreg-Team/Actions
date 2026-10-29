@@ -63,7 +63,7 @@ runs:
   using: "composite"
   steps:
     - name: "Checkout"
-      uses: actions/checkout@v7
+      uses: actions/checkout@v7.0.1
 
     - name: "Download pakku.jar"
       if: ${{ inputs.pakku_jar == 'download' }}
@@ -103,14 +103,14 @@ runs:
       run: cp -vf "${{ inputs.server_icon_src }}" .pakku/server-overrides/server-icon.png
 
     - name: "Cache pakku"
-      uses: actions/cache@v6
+      uses: actions/cache@v6.1.0
       with:
         path: build/.cache
         key: pakku-cache-${{ hashFiles('pakku-lock.json') }}
         restore-keys: pakku-cache-
 
     - name: "Cache mods"
-      uses: actions/cache@v6
+      uses: actions/cache@v6.1.0
       with:
         path: mods
         key: mods-${{ hashFiles('pakku-lock.json') }}
@@ -133,7 +133,7 @@ runs:
 
     - name: "Upload CurseForge artifact"
       if: ${{ inputs.artifact_curseforge == 'true' }}
-      uses: actions/upload-artifact@v7.0.1
+      uses: actions/upload-artifact@v7.0.2
       with:
         name: ${{ inputs.project_full_name }}-curseforge
         path: ./build/curseforge/${{ inputs.project_full_name }}-curseforge.zip
@@ -148,7 +148,7 @@ runs:
 
     - name: "Upload Modrinth artifact"
       if: ${{ inputs.artifact_modrinth == 'true' }}
-      uses: actions/upload-artifact@v7.0.1
+      uses: actions/upload-artifact@v7.0.2
       with:
         name: ${{ inputs.project_full_name }}-modrinth
         path: ./build/modrinth/${{ inputs.project_full_name }}-modrinth.mrpack
@@ -183,7 +183,7 @@ runs:
 
     - name: "Upload MultiMC artifact"
       if: ${{ inputs.artifact_multimc == 'true' }}
-      uses: actions/upload-artifact@v7.0.1
+      uses: actions/upload-artifact@v7.0.2
       with:
         name: ${{ inputs.project_full_name }}-multimc
         path: ./build/multimc/${{ inputs.project_full_name }}-multimc.zip
@@ -198,7 +198,7 @@ runs:
 
     - name: "Upload serverpack artifact"
       if: ${{ inputs.artifact_server == 'true' }}
-      uses: actions/upload-artifact@v7.0.1
+      uses: actions/upload-artifact@v7.0.2
       with:
         name: ${{ inputs.project_full_name }}-serverpack
         path: ./build/serverpack/${{ inputs.project_full_name }}-serverpack.zip
@@ -216,7 +216,7 @@ runs:
 
     - name: "Upload docker artifact"
       if: ${{ inputs.artifact_docker == 'true' }}
-      uses: actions/upload-artifact@v7.0.1
+      uses: actions/upload-artifact@v7.0.2
       with:
         name: ${{ inputs.project_full_name }}-docker
         path: ./build/docker/${{ inputs.project_full_name }}-docker.yml

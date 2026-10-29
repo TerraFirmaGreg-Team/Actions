@@ -56,9 +56,6 @@ inputs:
   mods_path:
     required: false
     default: "mods"
-  artifact_name:
-    required: false
-    default: "modpack-export"
   artifact_logs:
     required: false
     default: "true"
@@ -71,7 +68,7 @@ runs:
   steps:
     - name: "Checkout"
       if: ${{ inputs.checkout == 'true' }}
-      uses: actions/checkout@v7
+      uses: actions/checkout@v7.0.1
 
     - name: "Download pakku.jar"
       if: ${{ inputs.pack_artifact == '' && inputs.pakku_jar == 'download' }}
@@ -83,7 +80,7 @@ runs:
 
     - name: "Download built pack"
       if: ${{ inputs.pack_artifact != '' }}
-      uses: actions/download-artifact@v8.0.1
+      uses: actions/download-artifact@v8.0.2
       with:
         name: ${{ inputs.pack_artifact }}
         path: pack
@@ -106,7 +103,7 @@ runs:
 
     - name: "Cache pakku"
       if: ${{ inputs.pack_artifact == '' }}
-      uses: actions/cache@v6
+      uses: actions/cache@v6.1.0
       with:
         path: build/.cache
         key: pakku-cache-${{ hashFiles('pakku-lock.json') }}
@@ -114,7 +111,7 @@ runs:
 
     - name: "Cache mods"
       if: ${{ inputs.pack_artifact == '' }}
-      uses: actions/cache@v6
+      uses: actions/cache@v6.1.0
       with:
         path: ${{ inputs.mods_path }}
         key: mods-${{ hashFiles('pakku-lock.json') }}
@@ -144,7 +141,7 @@ runs:
         echo "EXPORT_OUTPUT_DIR=${{ inputs.output_dir }}" >> "$GITHUB_ENV"
 
     - name: "Run live export"
-      uses: headlesshq/mc-runtime-test@main
+      uses: headlesshq/mc-runtime-test@5.0.0
       with:
         mc: ${{ inputs.mc_version }}
         modloader: ${{ inputs.loader_type }}
@@ -154,19 +151,11 @@ runs:
         mc-runtime-test: none
         headlessmc-command: ${{ inputs.headlessmc_command }}
 
-    - name: "Upload dump"
-      if: ${{ success() }}
-      uses: actions/upload-artifact@v7.0.1
-      with:
-        name: ${{ inputs.artifact_name }}
-        path: ${{ inputs.output_dir }}
-        if-no-files-found: error
-
     - name: "Upload logs"
       if: ${{ always() && inputs.artifact_logs == 'true' }}
-      uses: actions/upload-artifact@v7.0.1
+      uses: actions/upload-artifact@v7.0.2
       with:
-        name: ${{ inputs.artifact_name }}-logs
+        name: game-export-logs
         path: |
           run/logs/
           run/crash-reports/

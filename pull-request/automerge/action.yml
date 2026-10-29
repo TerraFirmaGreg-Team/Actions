@@ -1,0 +1,37 @@
+name: "Automerge PR"
+description: "Automerge PR wrapper"
+
+inputs:
+  github_token:
+    required: true
+  pull_request:
+    required: true
+  merge_method:
+    required: false
+    default: "squash"
+  merge_labels:
+    required: false
+    default: ""
+  required_approvals:
+    required: false
+    default: "0"
+  delete_branch:
+    required: false
+    default: "true"
+  ready_state:
+    required: false
+    default: "clean,has_hooks,unknown,unstable,blocked"
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Automerge"
+      uses: pascalgn/automerge-action@v0.16.4
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        MERGE_METHOD: ${{ inputs.merge_method }}
+        MERGE_LABELS: ${{ inputs.merge_labels }}
+        MERGE_REQUIRED_APPROVALS: ${{ inputs.required_approvals }}
+        MERGE_DELETE_BRANCH: ${{ inputs.delete_branch }}
+        MERGE_READY_STATE: ${{ inputs.ready_state }}
+        PULL_REQUEST: ${{ inputs.pull_request }}

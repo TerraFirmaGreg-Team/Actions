@@ -1,0 +1,244 @@
+name: "Modpack: Build"
+description: "Placeholders + pakku export + artifacts"
+
+inputs:
+  project_version:
+    required: true
+  project_full_name:
+    required: true
+  loader_type:
+    required: false
+    default: ""
+  loader_version:
+    required: false
+    default: ""
+  mc_version:
+    required: false
+    default: ""
+  pakku_jar:
+    description: "'local' or 'download'"
+    required: false
+    default: "local"
+  pakku_repo:
+    required: false
+    default: "juraj-hrivnak/pakku"
+  pakku_version:
+    required: false
+    default: "latest"
+  version_files:
+    description: "Files where DEV -> project_version"
+    required: false
+    default: ""
+  loader_files:
+    description: "Files where LOADER_VERSION/LOADER_TYPE/MINECRAFT_VERSION get replaced"
+    required: false
+    default: ""
+  server_icon_src:
+    required: false
+    default: ""
+  multimc_icon_src:
+    required: false
+    default: ""
+  prune_export_false:
+    description: "Drop export:false mods from ./mods"
+    required: false
+    default: "false"
+  artifact_curseforge:
+    required: false
+    default: "true"
+  artifact_modrinth:
+    required: false
+    default: "true"
+  artifact_multimc:
+    required: false
+    default: "true"
+  artifact_server:
+    required: false
+    default: "true"
+  artifact_docker:
+    required: false
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Checkout"
+      uses: actions/checkout@v7
+
+    - name: "Download pakku.jar"
+      if: ${{ inputs.pakku_jar == 'download' }}
+      uses: dsaltares/fetch-gh-release-asset@1.1.2
+      with:
+        repo: ${{ inputs.pakku_repo }}
+        version: ${{ inputs.pakku_version }}
+        file: pakku.jar
+
+    - name: "Build include lists"
+      id: includes
+      if: ${{ inputs.version_files != '' || inputs.loader_files != '' }}
+      shell: bash
+      run: |
+        expand() { echo "$1" | while read -r p; do for f in $p; do [ -f "$f" ] && printf '%s,' "$f"; done; done; }
+        v=$(expand "${{ inputs.version_files }}")
+        l=$(expand "${{ inputs.loader_files }}")
+        echo "version=${v%,}" >> "$GITHUB_OUTPUT"
+        echo "loader=${l%,}" >> "$GITHUB_OUTPUT"
+
+    - name: "Apply version placeholder"
+      if: ${{ inputs.version_files != '' }}
+      uses: jacobtomlinson/gha-find-replace@v3
+      with:
+        find: "DEV"
+        replace: ${{ inputs.project_version }}
+        include: ${{ steps.includes.outputs.version }}
+
+    - name: "Apply loader version placeholder"
+      if: ${{ inputs.loader_files != '' }}
+      uses: jacobtomlinson/gha-find-replace@v3
+      with:
+        find: "LOADER_VERSION"
+        replace: ${{ inputs.loader_version }}
+        include: ${{ steps.includes.outputs.loader }}
+
+    - name: "Apply loader type placeholder"
+      if: ${{ inputs.loader_files != '' }}
+      uses: jacobtomlinson/gha-find-replace@v3
+      with:
+        find: "LOADER_TYPE"
+        replace: ${{ inputs.loader_type }}
+        include: ${{ steps.includes.outputs.loader }}
+
+    - name: "Apply minecraft version placeholder"
+      if: ${{ inputs.loader_files != '' }}
+      uses: jacobtomlinson/gha-find-replace@v3
+      with:
+        find: "MINECRAFT_VERSION"
+        replace: ${{ inputs.mc_version }}
+        include: ${{ steps.includes.outputs.loader }}
+
+    - name: "Copy server icon"
+      if: ${{ inputs.server_icon_src != '' }}
+      shell: bash
+      run: cp -vf "${{ inputs.server_icon_src }}" .pakku/server-overrides/server-icon.png
+
+    - name: "Cache pakku"
+      uses: actions/cache@v6
+      with:
+        path: build/.cache
+        key: pakku-cache-${{ hashFiles('pakku-lock.json') }}
+        restore-keys: pakku-cache-
+
+    - name: "Cache mods"
+      uses: actions/cache@v6
+      with:
+        path: mods
+        key: mods-${{ hashFiles('pakku-lock.json') }}
+        restore-keys: mods-
+
+    - name: "Export modpack"
+      shell: bash
+      run: |
+        java -jar pakku.jar fetch
+        mkdir -p mods
+        java -jar pakku.jar export
+        mkdir -p .pakku/multimc-overrides/flame .pakku/multimc-overrides/mods
+
+    - name: "Prepare CurseForge artifact"
+      if: ${{ inputs.artifact_curseforge == 'true' }}
+      shell: bash
+      run: |
+        cd ./build/curseforge/
+        mv *.zip $(basename -s .zip *.zip)-curseforge.zip
+
+    - name: "Upload CurseForge artifact"
+      if: ${{ inputs.artifact_curseforge == 'true' }}
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: ${{ inputs.project_full_name }}-curseforge
+        path: ./build/curseforge/${{ inputs.project_full_name }}-curseforge.zip
+        if-no-files-found: error
+
+    - name: "Prepare Modrinth artifact"
+      if: ${{ inputs.artifact_modrinth == 'true' }}
+      shell: bash
+      run: |
+        cd ./build/modrinth/
+        mv *.mrpack $(basename -s .mrpack *.mrpack)-modrinth.mrpack
+
+    - name: "Upload Modrinth artifact"
+      if: ${{ inputs.artifact_modrinth == 'true' }}
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: ${{ inputs.project_full_name }}-modrinth
+        path: ./build/modrinth/${{ inputs.project_full_name }}-modrinth.mrpack
+        if-no-files-found: warn
+
+    - name: "Prepare MultiMC artifact"
+      if: ${{ inputs.artifact_multimc == 'true' }}
+      shell: bash
+      env:
+        PRUNE: ${{ inputs.prune_export_false }}
+        ICON_SRC: ${{ inputs.multimc_icon_src }}
+      run: |
+        mv -vf .pakku/multimc-overrides ./build/multimc
+
+        if [ "$PRUNE" = "true" ] && [ -f ./pakku.json ]; then
+          for mod in $(jq -r '(.projects // {}) | to_entries[] | select(.value.export == false) | .key' ./pakku.json); do
+            find ./mods -name "${mod}*.jar" -type f -delete 2>/dev/null
+          done
+        fi
+
+        cp -rf ./build/.cache/curseforge/overrides ./build/multimc/.minecraft
+        cp -vf ./build/.cache/curseforge/manifest.json ./build/multimc/flame/manifest.json
+        [ -n "$ICON_SRC" ] && cp -vf "$ICON_SRC" ./build/multimc/.minecraft/icon.png
+        cp -rf ./mods ./build/multimc/.minecraft/
+
+    - name: "Zip MultiMC"
+      if: ${{ inputs.artifact_multimc == 'true' }}
+      uses: vimtor/action-zip@v1.2
+      with:
+        files: icon.png mmc-pack.json instance.cfg .minecraft/ flame/
+        dest: ${{ inputs.project_full_name }}-multimc.zip
+        recursive: true
+        working-directory: build/multimc
+
+    - name: "Upload MultiMC artifact"
+      if: ${{ inputs.artifact_multimc == 'true' }}
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: ${{ inputs.project_full_name }}-multimc
+        path: ./build/multimc/${{ inputs.project_full_name }}-multimc.zip
+        if-no-files-found: error
+
+    - name: "Prepare serverpack artifact"
+      if: ${{ inputs.artifact_server == 'true' }}
+      shell: bash
+      run: |
+        cd ./build/serverpack/
+        mv *.zip $(basename -s .zip *.zip)-serverpack.zip
+
+    - name: "Upload serverpack artifact"
+      if: ${{ inputs.artifact_server == 'true' }}
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: ${{ inputs.project_full_name }}-serverpack
+        path: ./build/serverpack/${{ inputs.project_full_name }}-serverpack.zip
+        if-no-files-found: error
+
+    - name: "Prepare docker artifact"
+      if: ${{ inputs.artifact_docker == 'true' }}
+      shell: bash
+      env:
+        FULL_NAME: ${{ inputs.project_full_name }}
+      run: |
+        mv -vf .pakku/docker-overrides ./build/docker
+        cd ./build/docker/
+        mv docker-compose.yml "${FULL_NAME}-docker.yml"
+
+    - name: "Upload docker artifact"
+      if: ${{ inputs.artifact_docker == 'true' }}
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: ${{ inputs.project_full_name }}-docker
+        path: ./build/docker/${{ inputs.project_full_name }}-docker.yml
+        if-no-files-found: error

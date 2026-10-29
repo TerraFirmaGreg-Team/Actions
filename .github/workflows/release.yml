@@ -4,13 +4,12 @@ on:
   push:
     branches: [main]
     paths:
-      - 'info/**'
-      - 'build/**'
-      - 'create-pr/**'
-      - 'release/**'
-      - 'message/**'
+      - 'mod/**'
+      - 'modpack/**'
+      - 'pull-request/**'
+      - 'discord/**'
+      - 'crowdin/**'
       - 'README.md'
-      - 'docs/**'
       - '.github/workflows/release.yml'
   workflow_dispatch:
 
@@ -66,3 +65,12 @@ jobs:
           name: ${{ steps.tag.outputs.new_tag }}
           body: ${{ steps.notes.outputs.notes }}
           generate_release_notes: false
+
+      - name: Update floating tags
+        run: |
+          tag="${{ steps.tag.outputs.new_tag }}"
+          major="${tag%%.*}"
+          minor="${tag%.*}"
+          git tag -fa "$major" -m "Update $major to $tag"
+          git tag -fa "$minor" -m "Update $minor to $tag"
+          git push -f origin "$major" "$minor"

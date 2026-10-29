@@ -1,0 +1,128 @@
+name: "Modpack: Test"
+description: "HeadlessMC client smoke test"
+
+inputs:
+  mc_version:
+    required: true
+  loader_type:
+    description: "forge/neoforge/fabric"
+    required: true
+  test_mod:
+    description: "forge|lexforge|neoforge|fabric|none"
+    required: false
+    default: "forge"
+  java_version:
+    required: false
+    default: "17"
+  xvfb:
+    required: false
+    default: "true"
+  dummy_assets:
+    required: false
+    default: "true"
+  headlessmc_command:
+    required: false
+    default: '--jvm "-Djava.awt.headless=true"'
+  pack_artifact:
+    description: "Built multimc artifact name; skips pakku fetch"
+    required: false
+    default: ""
+  pakku_jar:
+    description: "'local' or 'download'"
+    required: false
+    default: "local"
+  pakku_repo:
+    required: false
+    default: "juraj-hrivnak/pakku"
+  pakku_version:
+    required: false
+    default: "latest"
+  mods_path:
+    required: false
+    default: "mods"
+  artifact_logs:
+    required: false
+    default: "true"
+  artifact_prefix:
+    required: false
+    default: "modpack-test"
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Checkout"
+      uses: actions/checkout@v7
+
+    - name: "Download pakku.jar"
+      if: ${{ inputs.pack_artifact == '' && inputs.pakku_jar == 'download' }}
+      uses: dsaltares/fetch-gh-release-asset@1.1.2
+      with:
+        repo: ${{ inputs.pakku_repo }}
+        version: ${{ inputs.pakku_version }}
+        file: pakku.jar
+
+    - name: "Download built pack"
+      if: ${{ inputs.pack_artifact != '' }}
+      uses: actions/download-artifact@v8.0.1
+      with:
+        name: ${{ inputs.pack_artifact }}
+        path: pack
+
+    - name: "Unpack built pack"
+      if: ${{ inputs.pack_artifact != '' }}
+      shell: bash
+      run: |
+        mkdir -p pack-unzip
+        unzip -oq pack/*.zip -d pack-unzip
+
+    - name: "Cache pakku"
+      if: ${{ inputs.pack_artifact == '' }}
+      uses: actions/cache@v6
+      with:
+        path: build/.cache
+        key: pakku-cache-${{ hashFiles('pakku-lock.json') }}
+        restore-keys: pakku-cache-
+
+    - name: "Cache mods"
+      if: ${{ inputs.pack_artifact == '' }}
+      uses: actions/cache@v6
+      with:
+        path: ${{ inputs.mods_path }}
+        key: mods-${{ hashFiles('pakku-lock.json') }}
+        restore-keys: mods-
+
+    - name: "Stage mods"
+      if: ${{ inputs.pack_artifact == '' }}
+      shell: bash
+      run: |
+        java -jar pakku.jar fetch
+        mkdir -p run/mods
+        cp -f ${{ inputs.mods_path }}/*.jar run/mods/ 2>/dev/null || true
+
+    - name: "Stage built pack"
+      if: ${{ inputs.pack_artifact != '' }}
+      shell: bash
+      run: |
+        mkdir -p run
+        cp -rf pack-unzip/.minecraft/. run/
+
+    - name: "Runtime test"
+      uses: headlesshq/mc-runtime-test@main
+      with:
+        mc: ${{ inputs.mc_version }}
+        modloader: ${{ inputs.loader_type }}
+        java: ${{ inputs.java_version }}
+        xvfb: ${{ inputs.xvfb }}
+        dummy-assets: ${{ inputs.dummy_assets }}
+        mc-runtime-test: ${{ inputs.test_mod }}
+        headlessmc-command: ${{ inputs.headlessmc_command }}
+
+    - name: "Upload logs"
+      if: ${{ always() && inputs.artifact_logs == 'true' }}
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: ${{ inputs.artifact_prefix }}-logs
+        path: |
+          run/logs/
+          run/crash-reports/
+        if-no-files-found: warn

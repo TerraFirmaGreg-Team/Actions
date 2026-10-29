@@ -1,0 +1,47 @@
+name: "Crowdin Postprocess"
+description: "Cleanup translations on the localization branch and commit"
+
+inputs:
+  localization_branch:
+    required: false
+    default: "translations"
+  translations_root:
+    required: false
+    default: "kubejs/assets"
+  patchouli_config:
+    required: false
+    default: ".github/config/extract/patchouli.json"
+  commit_message:
+    required: false
+    default: "[translation] Remove empty translation files"
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Checkout translations branch"
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.localization_branch }}
+        fetch-depth: 0
+      continue-on-error: true
+
+    - name: "Normalize translations"
+      if: ${{ inputs.patchouli_config != '' }}
+      shell: bash
+      run: |
+        if [ -f "${{ inputs.patchouli_config }}" ]; then
+          node "${{ github.action_path }}/normalize.js" "${{ inputs.patchouli_config }}"
+        fi
+
+    - name: "Remove empty translation files"
+      shell: bash
+      run: |
+        find "${{ inputs.translations_root }}" -name "*.json" -type f \
+          -exec sh -c 'jq -e "keys | length == 0" "$1" >/dev/null 2>&1 && rm "$1"' _ {} \;
+
+    - name: "Commit changes"
+      uses: stefanzweifel/git-auto-commit-action@v7
+      with:
+        commit_message: ${{ inputs.commit_message }}
+        commit_author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+        branch: ${{ inputs.localization_branch }}

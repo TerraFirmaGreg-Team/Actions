@@ -1,0 +1,178 @@
+name: "Modpack: Info"
+description: "Modpack metadata + changelog + release/PR flags"
+
+inputs:
+  stable_branch:
+    required: false
+    default: "main"
+  changelog_path:
+    required: false
+    default: "CHANGELOG.md"
+  unreleased_label:
+    required: false
+    default: "unreleased"
+  release_type_default:
+    description: "Fallback release_type"
+    required: false
+    default: "release"
+  pakku_diff_enabled:
+    required: false
+    default: "true"
+  pakku_jar:
+    description: "'local' or 'download'"
+    required: false
+    default: "local"
+  pakku_repo:
+    required: false
+    default: "juraj-hrivnak/pakku"
+  pakku_version:
+    required: false
+    default: "latest"
+
+outputs:
+  project_name:
+    value: ${{ steps.meta.outputs.project_name }}
+  project_version:
+    value: ${{ steps.meta.outputs.project_version }}
+  project_full_name:
+    value: ${{ steps.meta.outputs.project_full_name }}
+  release_type:
+    value: ${{ steps.meta.outputs.release_type }}
+  mc_version:
+    value: ${{ steps.meta.outputs.minecraft_version }}
+  loader_type:
+    value: ${{ steps.meta.outputs.loader_type }}
+  loader_version:
+    value: ${{ steps.meta.outputs.loader_version }}
+  changelog:
+    value: ${{ steps.meta.outputs.changelog }}
+  changelog_version:
+    value: ${{ steps.changelog.outputs.version }}
+  diff:
+    value: ${{ steps.pakku_diff.outputs.diff }}
+  exists:
+    value: ${{ steps.tag_check.outputs.exists }}
+  make_release:
+    value: ${{ steps.meta.outputs.make_release }}
+  make_pr:
+    value: ${{ steps.meta.outputs.make_pr }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Checkout"
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: "Validate pakku files"
+      uses: andstor/file-existence-action@v3
+      with:
+        files: "pakku.json pakku-lock.json"
+        fail: "true"
+
+    - name: "Pakku diff"
+      id: pakku_diff
+      if: ${{ inputs.pakku_diff_enabled == 'true' }}
+      uses: TerraFirmaGreg-Team/Actions/modpack/pakku-diff@main
+      with:
+        stable_branch: ${{ inputs.stable_branch }}
+        pakku_jar: ${{ inputs.pakku_jar }}
+        pakku_repo: ${{ inputs.pakku_repo }}
+        pakku_version: ${{ inputs.pakku_version }}
+
+    - name: "Read pakku.json"
+      id: pakku_json
+      uses: ActionsTools/read-json-action@v1.0.5
+      with:
+        file_path: "pakku.json"
+
+    - name: "Read pakku-lock.json"
+      id: pakku_lock_json
+      uses: ActionsTools/read-json-action@v1.0.5
+      with:
+        file_path: "pakku-lock.json"
+
+    - name: "Parse changelog"
+      id: changelog
+      uses: coditory/changelog-parser@v1.0.2
+      with:
+        path: ${{ inputs.changelog_path }}
+      continue-on-error: true
+
+    - name: "Parse changelog (dev)"
+      id: changelog_dev
+      uses: coditory/changelog-parser@v1.0.2
+      with:
+        path: ${{ inputs.changelog_path }}
+        version: ${{ inputs.unreleased_label }}
+      continue-on-error: true
+
+    - name: "Check tag existence"
+      id: tag_check
+      uses: mukunku/tag-exists-action@v1.7.0
+      with:
+        tag: ${{ steps.changelog.outputs.version }}
+
+    - name: "Collect metadata"
+      id: meta
+      shell: bash
+      env:
+        CHANGELOG_VERSION: ${{ steps.changelog.outputs.version }}
+        PROJECT_NAME: ${{ steps.pakku_json.outputs.name }}
+        RELEASE_TYPE: ${{ steps.pakku_json.outputs.release_type }}
+        RELEASE_TYPE_DEFAULT: ${{ inputs.release_type_default }}
+        MC_VERSIONS: ${{ steps.pakku_lock_json.outputs.mc_versions }}
+        LOADERS: ${{ steps.pakku_lock_json.outputs.loaders }}
+        TAG_EXISTS: ${{ steps.tag_check.outputs.exists }}
+        CHANGELOG_DEV: ${{ steps.changelog_dev.outputs.description }}
+        CHANGELOG_STABLE: ${{ steps.changelog.outputs.description }}
+      run: |
+        set -eo pipefail
+
+        mc_version=$(echo "$MC_VERSIONS" | jq -r '.[0]' | tr -d '[]"')
+        loader_type=$(echo "$LOADERS" | jq -r 'keys[0]')
+        loader_version=$(echo "$LOADERS" | jq -r ".[keys[0]]")
+
+        if [ "${{ github.ref_name }}" != "${{ inputs.stable_branch }}" ]; then
+          dev_env=true
+          project_version="build-${GITHUB_RUN_NUMBER}"
+        else
+          dev_env=false
+          project_version="$CHANGELOG_VERSION"
+        fi
+
+        make_release=$([ "$TAG_EXISTS" = "false" ] && [ "$dev_env" = "false" ] && echo true || echo false)
+        make_pr=$([ "$TAG_EXISTS" = "false" ] && [ "$dev_env" = "true" ] && echo true || echo false)
+
+        echo "project_name=$PROJECT_NAME" >> "$GITHUB_OUTPUT"
+        echo "project_version=$project_version" >> "$GITHUB_OUTPUT"
+        echo "project_full_name=${PROJECT_NAME}-${project_version}" >> "$GITHUB_OUTPUT"
+        echo "release_type=${RELEASE_TYPE:-$RELEASE_TYPE_DEFAULT}" >> "$GITHUB_OUTPUT"
+        echo "minecraft_version=$mc_version" >> "$GITHUB_OUTPUT"
+        echo "loader_type=$loader_type" >> "$GITHUB_OUTPUT"
+        echo "loader_version=$loader_version" >> "$GITHUB_OUTPUT"
+        echo "make_release=$make_release" >> "$GITHUB_OUTPUT"
+        echo "make_pr=$make_pr" >> "$GITHUB_OUTPUT"
+        {
+          echo 'changelog<<EOF'
+          echo "${CHANGELOG_STABLE}"
+          echo EOF
+        } >> "$GITHUB_OUTPUT"
+
+    - name: "Summary"
+      uses: WcAServices/markdown-template-action@v1.1.1
+      with:
+        template: |
+          **Name**: ${{ steps.meta.outputs.project_name }}
+          **Release**: `${{ steps.meta.outputs.project_version }}`
+          **Release Type**: `${{ steps.meta.outputs.release_type }}`
+          **Game Version**: `${{ steps.meta.outputs.minecraft_version }}`
+          **Loader Type**: `${{ steps.meta.outputs.loader_type }}`
+          **Loader Version**: `${{ steps.meta.outputs.loader_version }}`
+          **Tag Exists**: `${{ steps.tag_check.outputs.exists }}`
+          **Make Pull Request**: `${{ steps.meta.outputs.make_pr }}`
+          **Make Release**: `${{ steps.meta.outputs.make_release }}`
+
+          ${{ steps.changelog_dev.outputs.description }}
+          ${{ steps.pakku_diff.outputs.diff }}

@@ -1,0 +1,105 @@
+name: "Mod: Info"
+description: "gradle.properties metadata + tag check"
+
+inputs:
+  properties_file:
+    required: false
+    default: "gradle.properties"
+  required_files:
+    required: false
+    default: "gradle.properties, build.gradle, README.md, src"
+
+outputs:
+  name:
+    value: ${{ steps.check.outputs.name }}
+  version:
+    value: ${{ steps.check.outputs.version }}
+  version_type:
+    value: ${{ steps.check.outputs.version_type }}
+  full_name:
+    value: ${{ steps.check.outputs.full_name }}
+  loaders:
+    value: ${{ steps.check.outputs.loaders }}
+  loaders_version:
+    value: ${{ steps.check.outputs.loaders_version }}
+  game_versions:
+    value: ${{ steps.check.outputs.game_versions }}
+  java_version:
+    value: ${{ steps.check.outputs.java_version }}
+  exists:
+    value: ${{ steps.tag_check.outputs.exists }}
+  make_release:
+    value: ${{ steps.check.outputs.make_release }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Checkout"
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: "Check required files"
+      uses: andstor/file-existence-action@v3
+      with:
+        fail: true
+        ignore_case: true
+        files: ${{ inputs.required_files }}
+
+    - name: "Read gradle.properties"
+      id: project_info
+      uses: madhead/read-java-properties@latest
+      with:
+        file: ${{ inputs.properties_file }}
+        all: true
+
+    - name: "Check if tag exists"
+      id: tag_check
+      uses: mukunku/tag-exists-action@v1.7.0
+      with:
+        tag: ${{ steps.project_info.outputs.mod_version }}
+
+    - name: "Compute metadata"
+      id: check
+      shell: bash
+      run: |
+        TAG_EXISTS="${{ steps.tag_check.outputs.exists }}"
+        SUFFIX="${{ steps.project_info.outputs.mod_name_suffix }}"
+        PROJECT_NAME="${{ steps.project_info.outputs.mod_name }}"
+        [ -n "$SUFFIX" ] && PROJECT_NAME="${PROJECT_NAME}-${SUFFIX}"
+
+        if [ "$TAG_EXISTS" = "false" ] && [ -n "${{ steps.project_info.outputs.mod_version }}" ]; then
+          make_release=true
+          version="${{ steps.project_info.outputs.mod_version }}"
+          version_type="${{ steps.project_info.outputs.mod_version_type }}"
+        else
+          make_release=false
+          version="${{ steps.project_info.outputs.mod_version }}-build-${GITHUB_RUN_NUMBER}"
+          version_type="Unreleased"
+        fi
+
+        echo "name=$PROJECT_NAME" >> "$GITHUB_OUTPUT"
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "version_type=$version_type" >> "$GITHUB_OUTPUT"
+        echo "full_name=${PROJECT_NAME}-${version}" >> "$GITHUB_OUTPUT"
+        echo "loaders=${{ steps.project_info.outputs.loader }}" >> "$GITHUB_OUTPUT"
+        echo "loaders_version=${{ steps.project_info.outputs.loader_version || steps.project_info.outputs.forge_version }}" >> "$GITHUB_OUTPUT"
+        echo "game_versions=${{ steps.project_info.outputs.minecraft_version }}" >> "$GITHUB_OUTPUT"
+        echo "java_version=${{ steps.project_info.outputs.java_version }}" >> "$GITHUB_OUTPUT"
+        echo "exists=$TAG_EXISTS" >> "$GITHUB_OUTPUT"
+        echo "make_release=$make_release" >> "$GITHUB_OUTPUT"
+
+    - name: "Summary"
+      uses: WcAServices/markdown-template-action@v1.1.1
+      with:
+        template: |
+          | Parameter | Value |
+          |-----------|-------|
+          | **Name** | `${{ steps.check.outputs.name }}` |
+          | **Version** | `${{ steps.check.outputs.version }}` |
+          | **Release Type** | `${{ steps.check.outputs.version_type }}` |
+          | **Game Versions** | `${{ steps.check.outputs.game_versions }}` |
+          | **Loaders** | `${{ steps.check.outputs.loaders }}` |
+          | **Loaders Version** | `${{ steps.check.outputs.loaders_version }}` |
+          | **Tag Exists** | `${{ steps.check.outputs.exists }}` |
+          | **Make Release** | `${{ steps.check.outputs.make_release }}` |

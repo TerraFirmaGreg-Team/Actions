@@ -1,0 +1,84 @@
+name: "Mod: Build"
+description: "Gradle build + jar artifact"
+
+inputs:
+  version:
+    description: "Value for mod_version"
+    required: true
+  replace_version:
+    required: false
+    default: "false"
+  properties_file:
+    required: false
+    default: "gradle.properties"
+  java_version:
+    description: "Java version(s), multiline"
+    required: true
+  java_distribution:
+    required: false
+    default: "temurin"
+  gradle_setup:
+    description: "gradle-build-action + wrapper validation"
+    required: false
+    default: "false"
+  gradle_args:
+    description: "Gradle commands, one per line"
+    required: false
+    default: "build"
+  artifact_name:
+    required: true
+  artifact_path:
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Checkout"
+      uses: actions/checkout@v7
+
+    - name: "Replace version"
+      if: ${{ inputs.replace_version == 'true' }}
+      shell: bash
+      run: |
+        [ -f "${{ inputs.properties_file }}" ] || { echo "::error::${{ inputs.properties_file }} not found"; exit 1; }
+        sed -i "s/^mod_version[[:space:]]*=.*/mod_version = ${{ inputs.version }}/g" "${{ inputs.properties_file }}"
+
+    - name: "Setup Java"
+      uses: actions/setup-java@v6.0.1
+      with:
+        distribution: ${{ inputs.java_distribution }}
+        java-version: ${{ inputs.java_version }}
+        cache: 'gradle'
+
+    - name: "Setup Gradle"
+      if: ${{ inputs.gradle_setup == 'true' }}
+      uses: gradle/gradle-build-action@v3.5.0
+      with:
+        cache-write-only: false
+        generate-job-summary: false
+        gradle-home-cache-includes: |
+          caches
+          notifications
+          jdks
+          wrapper
+
+    - name: "Validate Gradle wrapper"
+      if: ${{ inputs.gradle_setup == 'true' }}
+      uses: gradle/wrapper-validation-action@v3.5.0
+
+    - name: "Build"
+      shell: bash
+      run: |
+        chmod +x gradlew
+        echo "${{ inputs.gradle_args }}" | while IFS= read -r args; do
+          [ -z "$args" ] && continue
+          ./gradlew $args || exit 1
+        done
+        ls -la build/libs/ 2>/dev/null || true
+
+    - name: "Upload artifact"
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: ${{ inputs.artifact_path }}
+        if-no-files-found: error

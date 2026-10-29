@@ -1,0 +1,173 @@
+name: "Modpack: Export"
+description: "Live game-exporter dump via HeadlessMC"
+
+inputs:
+  mc_version:
+    required: true
+  loader_type:
+    required: true
+  platform:
+    description: "modern or vintage"
+    required: true
+  pack_artifact:
+    description: "Built multimc artifact name; skips pakku fetch"
+    required: false
+    default: ""
+  exporter_repo:
+    required: false
+    default: "TerraFirmaGreg-Team/Game-Exporter"
+  exporter_version:
+    required: false
+    default: "latest"
+  exporter_ref:
+    required: false
+    default: "main"
+  exporter_file:
+    required: false
+    default: ""
+  exporter_token:
+    required: false
+    default: ""
+  output_dir:
+    required: false
+    default: "export"
+  java_version:
+    required: false
+    default: "25"
+  xvfb:
+    required: false
+    default: "true"
+  dummy_assets:
+    required: false
+    default: "false"
+  headlessmc_command:
+    required: false
+    default: '--jvm "-Djava.awt.headless=true -Xmx16G -Xms8G"'
+  pakku_jar:
+    description: "'local' or 'download'"
+    required: false
+    default: "local"
+  pakku_repo:
+    required: false
+    default: "juraj-hrivnak/pakku"
+  pakku_version:
+    required: false
+    default: "latest"
+  mods_path:
+    required: false
+    default: "mods"
+  artifact_name:
+    required: false
+    default: "modpack-export"
+  artifact_logs:
+    required: false
+    default: "true"
+  checkout:
+    required: false
+    default: "true"
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Checkout"
+      if: ${{ inputs.checkout == 'true' }}
+      uses: actions/checkout@v7
+
+    - name: "Download pakku.jar"
+      if: ${{ inputs.pack_artifact == '' && inputs.pakku_jar == 'download' }}
+      uses: dsaltares/fetch-gh-release-asset@1.1.2
+      with:
+        repo: ${{ inputs.pakku_repo }}
+        version: ${{ inputs.pakku_version }}
+        file: pakku.jar
+
+    - name: "Download built pack"
+      if: ${{ inputs.pack_artifact != '' }}
+      uses: actions/download-artifact@v8.0.1
+      with:
+        name: ${{ inputs.pack_artifact }}
+        path: pack
+
+    - name: "Unpack built pack"
+      if: ${{ inputs.pack_artifact != '' }}
+      shell: bash
+      run: |
+        mkdir -p pack-unzip
+        unzip -oq pack/*.zip -d pack-unzip
+
+    - name: "Download game-exporter"
+      uses: dsaltares/fetch-gh-release-asset@1.1.2
+      with:
+        repo: ${{ inputs.exporter_repo }}
+        version: ${{ inputs.exporter_version }}
+        file: ${{ inputs.exporter_file || format('game-exporter-{0}.jar', inputs.platform) }}
+        target: game-exporter.jar
+        token: ${{ inputs.exporter_token || github.token }}
+
+    - name: "Cache pakku"
+      if: ${{ inputs.pack_artifact == '' }}
+      uses: actions/cache@v6
+      with:
+        path: build/.cache
+        key: pakku-cache-${{ hashFiles('pakku-lock.json') }}
+        restore-keys: pakku-cache-
+
+    - name: "Cache mods"
+      if: ${{ inputs.pack_artifact == '' }}
+      uses: actions/cache@v6
+      with:
+        path: ${{ inputs.mods_path }}
+        key: mods-${{ hashFiles('pakku-lock.json') }}
+        restore-keys: mods-
+
+    - name: "Prepare run dir"
+      shell: bash
+      env:
+        EXPORTER_REPO: ${{ inputs.exporter_repo }}
+        EXPORTER_REF: ${{ inputs.exporter_ref }}
+        PLATFORM: ${{ inputs.platform }}
+        TOKEN: ${{ inputs.exporter_token }}
+        PACK_ARTIFACT: ${{ inputs.pack_artifact }}
+      run: |
+        mkdir -p run
+        if [ -n "$PACK_ARTIFACT" ]; then
+          cp -rf pack-unzip/.minecraft/. run/
+        else
+          java -jar pakku.jar fetch
+          mkdir -p run/mods
+          cp -f ${{ inputs.mods_path }}/*.jar run/mods/ 2>/dev/null || true
+        fi
+        cp -f game-exporter.jar run/mods/game-exporter.jar
+        curl -sfL ${TOKEN:+-H "Authorization: Bearer $TOKEN"} \
+          "https://raw.githubusercontent.com/${EXPORTER_REPO}/${EXPORTER_REF}/packs/${PLATFORM}/pack.json" \
+          -o run/pack.json
+        echo "EXPORT_OUTPUT_DIR=${{ inputs.output_dir }}" >> "$GITHUB_ENV"
+
+    - name: "Run live export"
+      uses: headlesshq/mc-runtime-test@main
+      with:
+        mc: ${{ inputs.mc_version }}
+        modloader: ${{ inputs.loader_type }}
+        java: ${{ inputs.java_version }}
+        xvfb: ${{ inputs.xvfb }}
+        dummy-assets: ${{ inputs.dummy_assets }}
+        mc-runtime-test: none
+        headlessmc-command: ${{ inputs.headlessmc_command }}
+
+    - name: "Upload dump"
+      if: ${{ success() }}
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: ${{ inputs.output_dir }}
+        if-no-files-found: error
+
+    - name: "Upload logs"
+      if: ${{ always() && inputs.artifact_logs == 'true' }}
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: ${{ inputs.artifact_name }}-logs
+        path: |
+          run/logs/
+          run/crash-reports/
+        if-no-files-found: warn

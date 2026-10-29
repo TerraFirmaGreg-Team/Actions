@@ -1,0 +1,85 @@
+name: "Modpack: Pakku Diff"
+description: "pakku-lock diff vs latest stable tag"
+
+inputs:
+  stable_branch:
+    description: "Stable branch"
+    required: false
+    default: "main"
+  pakku_jar:
+    description: "'local' or 'download'"
+    required: false
+    default: "local"
+  pakku_repo:
+    description: "Repo with pakku releases"
+    required: false
+    default: "juraj-hrivnak/pakku"
+  pakku_version:
+    description: "'latest' or tag"
+    required: false
+    default: "latest"
+  lock_path:
+    description: "pakku-lock.json path"
+    required: false
+    default: "pakku-lock.json"
+  output_path:
+    description: "Diff output file"
+    required: false
+    default: "PROJECTS_DIFF.md"
+
+outputs:
+  diff:
+    description: "Diff markdown"
+    value: ${{ steps.read_diff.outputs.content }}
+  available:
+    description: "Diff was generated"
+    value: ${{ steps.previous_lock.outputs.available }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Get latest tag"
+      id: latest_tag
+      shell: bash
+      run: |
+        tag=$(git describe --tags --abbrev=0 origin/${{ inputs.stable_branch }} 2>/dev/null || true)
+        echo "tag=$tag" >> "$GITHUB_OUTPUT"
+        [ -n "$tag" ] && echo "Latest tag: $tag" || echo "No tag on ${{ inputs.stable_branch }}"
+
+    - name: "Extract pakku-lock.json from previous tag"
+      id: previous_lock
+      shell: bash
+      run: |
+        tag="${{ steps.latest_tag.outputs.tag }}"
+        if [ -z "$tag" ]; then
+          echo "available=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        if git cat-file -e "${tag}:./${{ inputs.lock_path }}" 2>/dev/null; then
+          git show "tags/${tag}:./${{ inputs.lock_path }}" > ./pakku-lock-prev.json
+          [ -s ./pakku-lock-prev.json ] && echo "available=true" >> "$GITHUB_OUTPUT" || echo "available=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "available=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: "Download pakku.jar"
+      if: ${{ inputs.pakku_jar == 'download' && steps.previous_lock.outputs.available == 'true' }}
+      uses: dsaltares/fetch-gh-release-asset@1.1.2
+      with:
+        repo: ${{ inputs.pakku_repo }}
+        version: ${{ inputs.pakku_version }}
+        file: pakku.jar
+
+    - name: "Run pakku diff"
+      if: ${{ steps.previous_lock.outputs.available == 'true' }}
+      shell: bash
+      run: |
+        java -jar pakku.jar diff -v --markdown "${{ inputs.output_path }}" ./pakku-lock-prev.json "${{ inputs.lock_path }}"
+        [ -f "${{ inputs.output_path }}" ] || { echo "Diff not created"; exit 1; }
+
+    - name: "Read diff"
+      id: read_diff
+      if: ${{ steps.previous_lock.outputs.available == 'true' }}
+      uses: juliangruber/read-file-action@v1
+      with:
+        path: ${{ inputs.output_path }}

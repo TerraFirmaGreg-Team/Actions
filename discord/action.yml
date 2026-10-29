@@ -1,0 +1,50 @@
+name: "Discord Message"
+description: "Send Discord webhook message"
+
+inputs:
+  webhook_key:
+    description: "Webhook secret"
+    required: true
+  username:
+    required: false
+    default: "TerraFirmaGreg"
+  avatar_url:
+    required: false
+    default: "https://raw.githubusercontent.com/TerraFirmaGreg-Team/.github/main/branding/logo.png"
+  content:
+    required: true
+  mention:
+    required: false
+    default: ""
+  truncate_chars:
+    required: false
+    default: "0"
+  content_links_no_embed:
+    required: false
+    default: ".+"
+  allowed_mentions_parse_users:
+    required: false
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Truncate content"
+      id: truncated
+      if: ${{ inputs.truncate_chars != '0' }}
+      uses: cisox/read-more-action@v1.0.2
+      with:
+        text: ${{ inputs.content }}
+        max_chars: ${{ inputs.truncate_chars }}
+
+    - name: "Send Discord message"
+      uses: hugoalh/send-discord-webhook-ghaction@v7.0.5
+      with:
+        key: ${{ inputs.webhook_key }}
+        username: ${{ inputs.username }}
+        avatar_url: ${{ inputs.avatar_url }}
+        content_links_no_embed: ${{ inputs.content_links_no_embed }}
+        allowed_mentions_parse_users: ${{ inputs.allowed_mentions_parse_users }}
+        content: |
+          ${{ inputs.mention }}
+          ${{ steps.truncated.outputs.text || inputs.content }}

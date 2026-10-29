@@ -1,0 +1,80 @@
+name: "Crowdin Sync"
+description: "Crowdin upload/download wrapper"
+
+inputs:
+  config:
+    required: true
+  upload_sources:
+    required: false
+    default: "true"
+  upload_sources_args:
+    required: false
+    default: ""
+  upload_translations:
+    required: false
+    default: "false"
+  download_translations:
+    required: false
+    default: "false"
+  skip_untranslated_strings:
+    required: false
+    default: "false"
+  export_only_approved:
+    required: false
+    default: "false"
+  create_pull_request:
+    required: false
+    default: "false"
+  localization_branch:
+    required: false
+    default: "translations"
+  target_branch:
+    required: false
+    default: "dev"
+  commit_message:
+    required: false
+    default: "[translation] New translations"
+  pull_request_title:
+    required: false
+    default: ""
+  pull_request_body:
+    required: false
+    default: ""
+  pull_request_labels:
+    required: false
+    default: ""
+  download_language:
+    required: false
+    default: ""
+  crowdin_token:
+    required: true
+  crowdin_id:
+    required: true
+  github_token:
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Crowdin"
+      uses: crowdin/github-action@v3
+      with:
+        upload_sources: ${{ inputs.upload_sources }}
+        upload_sources_args: ${{ inputs.upload_sources_args }}
+        upload_translations: ${{ inputs.upload_translations }}
+        download_translations: ${{ inputs.download_translations }}
+        skip_untranslated_strings: ${{ inputs.skip_untranslated_strings }}
+        export_only_approved: ${{ inputs.export_only_approved }}
+        create_pull_request: ${{ inputs.create_pull_request }}
+        localization_branch_name: ${{ inputs.localization_branch }}
+        pull_request_base_branch_name: ${{ inputs.target_branch }}
+        pull_request_title: ${{ inputs.pull_request_title }}
+        pull_request_body: ${{ inputs.pull_request_body }}
+        pull_request_labels: ${{ inputs.pull_request_labels }}
+        download_language: ${{ inputs.download_language }}
+        commit_message: ${{ inputs.commit_message }}
+        config: ${{ inputs.config }}
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        CROWDIN_PERSONAL_TOKEN: ${{ inputs.crowdin_token }}
+        CROWDIN_ID: ${{ inputs.crowdin_id }}

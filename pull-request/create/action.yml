@@ -1,0 +1,101 @@
+name: "Create Pull Request"
+description: "Create PR unless one exists"
+
+inputs:
+  source_branch:
+    required: true
+  target_branch:
+    required: true
+  title:
+    required: true
+  body:
+    required: false
+    default: ""
+  label:
+    required: false
+    default: ""
+  draft:
+    required: false
+    default: "true"
+  milestone:
+    description: "Milestone title if it exists"
+    required: false
+    default: ""
+  ignore_users:
+    required: false
+    default: "dependabot"
+  github_token:
+    required: true
+
+outputs:
+  pr_number:
+    value: ${{ steps.create_pr.outputs.pr_number || steps.check_pr.outputs.number }}
+  pr_url:
+    value: ${{ steps.create_pr.outputs.pr_url || steps.check_pr.outputs.url }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Check existing PRs"
+      id: check_pr
+      uses: actions/github-script@v9.0.0
+      with:
+        github-token: ${{ inputs.github_token }}
+        result-encoding: string
+        script: |
+          try {
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              head: `${context.repo.owner}:${{ inputs.source_branch }}`,
+              base: '${{ inputs.target_branch }}'
+            });
+            core.setOutput('exists', prs.length > 0);
+            if (prs.length > 0) {
+              core.setOutput('number', prs[0].number);
+              core.setOutput('url', prs[0].html_url);
+            }
+            console.log(`PR exists: ${prs.length > 0}`);
+          } catch (error) {
+            core.setFailed(`PR check failed: ${error}`);
+            core.setOutput('exists', true);
+          }
+
+    - name: "Check milestone"
+      id: check_milestone
+      if: ${{ inputs.milestone != '' }}
+      uses: actions/github-script@v9.0.0
+      with:
+        github-token: ${{ inputs.github_token }}
+        result-encoding: string
+        script: |
+          const version = '${{ inputs.milestone }}';
+          try {
+            const milestones = await github.rest.issues.listMilestones({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all'
+            });
+            const exists = milestones.data.some(m => m.title === version);
+            console.log(`Milestone "${version}" exists: ${exists}`);
+            return exists;
+          } catch (error) {
+            console.log('Milestone check failed, skipping milestone');
+            return false;
+          }
+
+    - name: "Create Pull Request"
+      id: create_pr
+      if: ${{ steps.check_pr.outputs.exists == 'false' }}
+      uses: devops-infra/action-pull-request@v1.0.2
+      with:
+        github_token: ${{ inputs.github_token }}
+        source_branch: ${{ inputs.source_branch }}
+        target_branch: ${{ inputs.target_branch }}
+        milestone: ${{ inputs.milestone != '' && steps.check_milestone.outputs.result == 'true' && inputs.milestone || '' }}
+        ignore_users: ${{ inputs.ignore_users }}
+        draft: ${{ inputs.draft }}
+        label: ${{ inputs.label }}
+        title: ${{ inputs.title }}
+        body: ${{ inputs.body }}

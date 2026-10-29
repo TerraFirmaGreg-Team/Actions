@@ -1,0 +1,92 @@
+name: "Mod: Release"
+description: "Publish mod via game-publish"
+
+inputs:
+  full_name:
+    required: true
+  version:
+    required: true
+  version_type:
+    required: false
+    default: "release"
+  files:
+    description: "Release files"
+    required: true
+  loaders:
+    required: false
+    default: ""
+  game_versions:
+    required: false
+    default: ""
+  java:
+    required: false
+    default: ""
+  github_name:
+    required: false
+    default: ""
+  github_prerelease:
+    required: false
+    default: "false"
+  game_version_filter:
+    required: false
+    default: "none"
+  environment:
+    required: false
+    default: "client | server"
+  modrinth_dependencies:
+    required: false
+    default: ""
+  curseforge_dependencies:
+    required: false
+    default: ""
+  github_token:
+    required: true
+  modrinth_id:
+    required: false
+    default: ""
+  modrinth_token:
+    required: false
+    default: ""
+  curseforge_id:
+    required: false
+    default: ""
+  curseforge_token:
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Download artifacts"
+      uses: actions/download-artifact@v8.0.1
+      with:
+        merge-multiple: true
+
+    - name: "Publish"
+      uses: Xikaro/game-publish@main
+      with:
+        modrinth-id: ${{ inputs.modrinth_id }}
+        modrinth-token: ${{ inputs.modrinth_token }}
+        modrinth-dependencies: ${{ inputs.modrinth_dependencies }}
+        curseforge-id: ${{ inputs.curseforge_id }}
+        curseforge-token: ${{ inputs.curseforge_token }}
+        curseforge-dependencies: ${{ inputs.curseforge_dependencies }}
+        github-name: ${{ inputs.github_name != '' && inputs.github_name || inputs.version }}
+        github-tag: ${{ inputs.version }}
+        github-generate-changelog: true
+        github-prerelease: ${{ inputs.github_prerelease }}
+        github-token: ${{ inputs.github_token }}
+        files: ${{ inputs.files }}
+        name: ${{ inputs.full_name }}
+        version: ${{ inputs.version }}
+        version-type: ${{ inputs.version_type }}
+        loaders: ${{ inputs.loaders }}
+        game-versions: ${{ inputs.game_versions }}
+        game-version-filter: ${{ inputs.game_version_filter }}
+        environment: ${{ inputs.environment }}
+        java: ${{ inputs.java }}
+        rollback: true
+        retry-attempts: 2
+        retry-delay: 10000
+        fail-mode: fail
+

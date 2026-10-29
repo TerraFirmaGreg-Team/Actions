@@ -73,48 +73,24 @@ runs:
         version: ${{ inputs.pakku_version }}
         file: pakku.jar
 
-    - name: "Build include lists"
-      id: includes
+    - name: "Apply placeholders"
       if: ${{ inputs.version_files != '' || inputs.loader_files != '' }}
       shell: bash
       run: |
-        expand() { echo "$1" | while read -r p; do for f in $p; do [ -f "$f" ] && printf '%s,' "$f"; done; done; }
-        v=$(expand "${{ inputs.version_files }}")
-        l=$(expand "${{ inputs.loader_files }}")
-        echo "version=${v%,}" >> "$GITHUB_OUTPUT"
-        echo "loader=${l%,}" >> "$GITHUB_OUTPUT"
-
-    - name: "Apply version placeholder"
-      if: ${{ inputs.version_files != '' }}
-      uses: jacobtomlinson/gha-find-replace@v3
-      with:
-        find: "DEV"
-        replace: ${{ inputs.project_version }}
-        include: ${{ steps.includes.outputs.version }}
-
-    - name: "Apply loader version placeholder"
-      if: ${{ inputs.loader_files != '' }}
-      uses: jacobtomlinson/gha-find-replace@v3
-      with:
-        find: "LOADER_VERSION"
-        replace: ${{ inputs.loader_version }}
-        include: ${{ steps.includes.outputs.loader }}
-
-    - name: "Apply loader type placeholder"
-      if: ${{ inputs.loader_files != '' }}
-      uses: jacobtomlinson/gha-find-replace@v3
-      with:
-        find: "LOADER_TYPE"
-        replace: ${{ inputs.loader_type }}
-        include: ${{ steps.includes.outputs.loader }}
-
-    - name: "Apply minecraft version placeholder"
-      if: ${{ inputs.loader_files != '' }}
-      uses: jacobtomlinson/gha-find-replace@v3
-      with:
-        find: "MINECRAFT_VERSION"
-        replace: ${{ inputs.mc_version }}
-        include: ${{ steps.includes.outputs.loader }}
+        repl() {
+          local find="$1" repl="$2"; shift 2
+          for f in $*; do
+            [ -f "$f" ] && sed -i -e "s|${find}|${repl}|g" "$f"
+          done
+        }
+        while read -r p; do
+          [ -n "$p" ] && repl "DEV" "${{ inputs.project_version }}" $p
+        done <<< '${{ inputs.version_files }}'
+        while read -r p; do
+          [ -n "$p" ] && repl "LOADER_VERSION" "${{ inputs.loader_version }}" $p
+          [ -n "$p" ] && repl "LOADER_TYPE" "${{ inputs.loader_type }}" $p
+          [ -n "$p" ] && repl "MINECRAFT_VERSION" "${{ inputs.mc_version }}" $p
+        done <<< '${{ inputs.loader_files }}'
 
     - name: "Copy server icon"
       if: ${{ inputs.server_icon_src != '' }}

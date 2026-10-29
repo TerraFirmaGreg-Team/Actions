@@ -68,6 +68,8 @@ jobs:
 
       - name: Update floating tags
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           tag="${{ steps.tag.outputs.new_tag }}"
           major="${tag%%.*}"
           minor="${tag%.*}"

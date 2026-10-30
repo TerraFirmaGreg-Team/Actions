@@ -9,6 +9,10 @@ inputs:
   platform:
     description: "Pack id + exporter jar flavor (modern|vintage)"
     required: true
+  pack_id:
+    description: "Dump pack id → EXPORT_PACK_ID; empty = platform"
+    required: false
+    default: ""
   version:
     description: "Dump version → EXPORT_VERSION"
     required: true
@@ -105,7 +109,7 @@ runs:
         EXPORT_VERSION: ${{ inputs.version }}
         EXPORT_EXIT_AFTER_DUMP: "true"
         EXPORT_TIMEOUT_SECONDS: ${{ inputs.timeout_seconds }}
-        EXPORT_PACK_ID: ${{ inputs.platform }}
+        EXPORT_PACK_ID: ${{ inputs.pack_id || inputs.platform }}
         EXPORT_NAMESPACE: ${{ inputs.namespace }}
         EXPORT_EXCLUDE_MODS: ${{ inputs.exclude_mods }}
         DUMP_STORAGE_TYPE: ${{ inputs.dump_s3_endpoint != '' && 's3' || 'off' }}

@@ -118,6 +118,31 @@ runs:
       shell: bash
       run: echo "SERVER_RESULT=fail" >> "$GITHUB_ENV"
 
+    - name: "Analyze logs"
+      if: always()
+      shell: bash
+      run: |
+        bad=0
+        for dir in client server; do
+          [ -d "$dir/logs" ] || continue
+          kerr=$(grep -rsh 'ERROR' $dir/logs/kubejs/*.log 2>/dev/null; grep -h "Error in '" $dir/logs/latest.log 2>/dev/null | head -3)
+          if [ -n "$kerr" ]; then
+            echo "::error title=KubeJS errors ($dir)::$(echo "$kerr" | head -5 | tr '\n' ' ')"
+            echo "${dir^^}_RESULT=fail" >> "$GITHUB_ENV"
+            bad=1
+          fi
+          if grep -sq 'Mixin apply failed' $dir/logs/latest.log; then
+            echo "::error title=Mixin failure ($dir)::$(grep -m3 'Mixin apply failed' $dir/logs/latest.log | tr '\n' ' ')"
+            echo "${dir^^}_RESULT=fail" >> "$GITHUB_ENV"
+            bad=1
+          fi
+          rec=$(grep -c 'Parsing error loading recipe' $dir/logs/latest.log 2>/dev/null || true)
+          if [ "${rec:-0}" -gt 0 ]; then echo "::warning title=Recipe parse errors ($dir)::$rec in latest.log"; fi
+          dp=$(grep -cE "Couldn't load data tag|Couldn't parse data file" $dir/logs/latest.log 2>/dev/null || true)
+          if [ "${dp:-0}" -gt 0 ]; then echo "::warning title=Datapack issues ($dir)::$dp in latest.log"; fi
+        done
+        [ "$bad" -eq 0 ]
+
     - name: "Test summary"
       if: always()
       shell: bash

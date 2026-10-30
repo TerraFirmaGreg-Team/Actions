@@ -6,6 +6,10 @@ inputs:
     required: true
   loader_type:
     required: true
+  loader_version:
+    description: "Pinned loader build for the server test (e.g. 47.4.13); empty = latest"
+    required: false
+    default: ""
   pack_artifact:
     description: "Built multimc artifact name"
     required: true
@@ -46,18 +50,19 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: "Download built pack"
+    - name: "Download client pack"
       uses: actions/download-artifact@v8.0.2
       with:
         name: ${{ inputs.pack_artifact }}
-        path: pack
+        path: pack-client
 
-    - name: "Prepare run dir"
+    - name: "Stage client"
       shell: bash
       run: |
-        mkdir -p pack-unzip run
-        unzip -oq pack/*.zip -d pack-unzip
-        cp -rf pack-unzip/.minecraft/. run/
+        mkdir -p client-unzip client
+        unzip -oq pack-client/*.zip -d client-unzip
+        cp -rf client-unzip/.minecraft/. client/
+        ln -sfn client run
         echo "CLIENT_RESULT=fail" >> "$GITHUB_ENV"
         echo "SERVER_RESULT=skipped" >> "$GITHUB_ENV"
 
@@ -85,16 +90,19 @@ runs:
         name: ${{ inputs.server_artifact }}
         path: pack-server
 
-    - name: "Stage server pack"
+    - name: "Stage server"
       if: ${{ inputs.server_artifact != '' }}
       shell: bash
-      run: unzip -oq pack-server/*.zip -d run
+      run: |
+        mkdir -p server
+        unzip -oq pack-server/*.zip -d server
+        ln -sfn server run
 
     - name: "Server test"
       if: ${{ inputs.server_artifact != '' }}
       uses: headlesshq/mc-server-test@2.0.0
       with:
-        mc: ${{ inputs.mc_version }}
+        mc: "${{ inputs.mc_version }} ${{ inputs.loader_version }}"
         modloader: ${{ inputs.loader_type }}
         java: ${{ inputs.java_version }}
         cache-mc: 'true'
@@ -129,27 +137,35 @@ runs:
       with:
         name: ${{ inputs.artifact_prefix }}-logs
         path: |
-          run/logs/
-          run/crash-reports/
+          client/logs/
+          client/crash-reports/
+          server/logs/
+          server/crash-reports/
         if-no-files-found: warn
 
     - name: "Collect failure details"
       if: failure()
       shell: bash
       run: |
+        dir=client
+        if [ "$SERVER_RESULT" = "fail" ]; then dir=server; fi
         {
           echo '### Runtime test failed'
           echo '```'
-          crash=$(ls -t run/crash-reports/*.txt 2>/dev/null | head -1)
+          crash=$(ls -t $dir/crash-reports/*.txt 2>/dev/null | head -1)
           if [ -n "$crash" ]; then
             head -80 "$crash"
-          elif [ -f run/logs/latest.log ]; then
-            tail -80 run/logs/latest.log
+          elif [ -f $dir/logs/latest.log ]; then
+            tail -80 $dir/logs/latest.log
           else
             echo 'No crash report or latest.log. See attached logs.'
           fi
           echo '```'
         } > pr-comment.md
+        mkdir -p fail-logs
+        cp pr-comment.md fail-logs/
+        cp -r $dir/logs fail-logs/logs 2>/dev/null || true
+        cp -r $dir/crash-reports fail-logs/crash-reports 2>/dev/null || true
         cat pr-comment.md >> "$GITHUB_STEP_SUMMARY"
 
     - name: "Comment PR on failure"
@@ -159,6 +175,6 @@ runs:
         issue: ${{ inputs.pr_number || github.event.pull_request.number }}
         message-path: pr-comment.md
         message-id: runtime-test
-        attach-path: run/logs/
-        attach-name: ${{ inputs.artifact_prefix }}-logs
+        attach-path: fail-logs/
+        attach-name: ${{ inputs.artifact_prefix }}-pr-logs
         attach-text: '[Download full logs](%ARTIFACT_URL%)'

@@ -35,7 +35,7 @@ inputs:
     default: '--jvm "-Djava.awt.headless=true"'
   server_headlessmc_command:
     required: false
-    default: '--jvm "-Xmx8G"'
+    default: '--jvm "-Djava.awt.headless=true""'
   artifact_logs:
     required: false
     default: "true"

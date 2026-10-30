@@ -3,12 +3,16 @@ description: "Create PR unless one exists"
 
 inputs:
   source_branch:
-    required: true
+    required: false
+    default: "dev"
   target_branch:
-    required: true
+    required: false
+    default: "main"
   title:
-    required: true
+    required: false
+    default: ""
   body:
+    description: "Overrides generated body"
     required: false
     default: ""
   label:
@@ -21,11 +25,27 @@ inputs:
     description: "Milestone title if it exists"
     required: false
     default: ""
+  project_name:
+    required: false
+    default: ""
+  release_type:
+    required: false
+    default: ""
+  loader_type:
+    required: false
+    default: ""
+  loader_version:
+    required: false
+    default: ""
+  changelog:
+    required: false
+    default: ""
   ignore_users:
     required: false
     default: "dependabot"
   github_token:
-    required: true
+    required: false
+    default: ""
 
 outputs:
   pr_number:
@@ -40,7 +60,7 @@ runs:
       id: check_pr
       uses: actions/github-script@v9.0.0
       with:
-        github-token: ${{ inputs.github_token }}
+        github-token: ${{ inputs.github_token || github.token }}
         result-encoding: string
         script: |
           try {
@@ -67,7 +87,7 @@ runs:
       if: ${{ inputs.milestone != '' }}
       uses: actions/github-script@v9.0.0
       with:
-        github-token: ${{ inputs.github_token }}
+        github-token: ${{ inputs.github_token || github.token }}
         result-encoding: string
         script: |
           const version = '${{ inputs.milestone }}';
@@ -85,17 +105,34 @@ runs:
             return false;
           }
 
+    - name: "Default body"
+      id: default_body
+      if: ${{ inputs.body == '' }}
+      shell: bash
+      run: |
+        {
+          echo 'body<<EOF'
+          echo "**This is an automated Pull Request from the ${{ inputs.source_branch }} branch.**"
+          echo "📃 **Name**: ${{ inputs.project_name }}"
+          echo "📃 **Release**:  \`${{ inputs.milestone }}\`"
+          echo "📃 **Release Type**: \`${{ inputs.release_type }}\`"
+          echo "📃 **Loader Type**: \`${{ inputs.loader_type }}\`"
+          echo "📃 **Loader Version**: \`${{ inputs.loader_version }}\`"
+          echo "${{ inputs.changelog }}"
+          echo 'EOF'
+        } >> "$GITHUB_OUTPUT"
+
     - name: "Create Pull Request"
       id: create_pr
       if: ${{ steps.check_pr.outputs.exists == 'false' }}
       uses: devops-infra/action-pull-request@v1.4.0
       with:
-        github_token: ${{ inputs.github_token }}
+        github_token: ${{ inputs.github_token || github.token }}
         source_branch: ${{ inputs.source_branch }}
         target_branch: ${{ inputs.target_branch }}
         milestone: ${{ inputs.milestone != '' && steps.check_milestone.outputs.result == 'true' && inputs.milestone || '' }}
         ignore_users: ${{ inputs.ignore_users }}
         draft: ${{ inputs.draft }}
         label: ${{ inputs.label }}
-        title: ${{ inputs.title }}
-        body: ${{ inputs.body }}
+        title: "${{ inputs.title || format('new Release: {0}', inputs.milestone) }}"
+        body: ${{ inputs.body || steps.default_body.outputs.body }}

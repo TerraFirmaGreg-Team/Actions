@@ -102,10 +102,14 @@ runs:
       shell: bash
       run: cp -vf "${{ inputs.server_icon_src }}" .pakku/server-overrides/server-icon.png
 
-    - name: "Cache mods"
+    - name: "Cache downloaded projects"
       uses: actions/cache@v6.1.0
       with:
-        path: mods
+        path: |
+          mods
+          resourcepacks
+          shaderpacks
+          datapacks
         key: mods-${{ hashFiles('pakku-lock.json') }}
         restore-keys: mods-
 

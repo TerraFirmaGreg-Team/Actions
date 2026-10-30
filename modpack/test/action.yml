@@ -1,5 +1,5 @@
 name: "Modpack: Test"
-description: "HeadlessMC client smoke test; PR comment on failure"
+description: "HeadlessMC client + server smoke tests; summary, logs, PR comment on failure"
 
 inputs:
   mc_version:
@@ -9,6 +9,10 @@ inputs:
   pack_artifact:
     description: "Built multimc artifact name"
     required: true
+  server_artifact:
+    description: "Built serverpack artifact name; empty = skip server test"
+    required: false
+    default: ""
   pr_number:
     description: "PR to comment on failure; empty = current pull_request event"
     required: false
@@ -29,6 +33,9 @@ inputs:
   headlessmc_command:
     required: false
     default: '--jvm "-Djava.awt.headless=true"'
+  server_headlessmc_command:
+    required: false
+    default: '--jvm "-Xmx8G"'
   artifact_logs:
     required: false
     default: "true"
@@ -51,8 +58,10 @@ runs:
         mkdir -p pack-unzip run
         unzip -oq pack/*.zip -d pack-unzip
         cp -rf pack-unzip/.minecraft/. run/
+        echo "CLIENT_RESULT=fail" >> "$GITHUB_ENV"
+        echo "SERVER_RESULT=skipped" >> "$GITHUB_ENV"
 
-    - name: "Runtime test"
+    - name: "Client test"
       uses: headlesshq/mc-runtime-test@5.0.0
       with:
         mc: ${{ inputs.mc_version }}
@@ -62,6 +71,55 @@ runs:
         dummy-assets: ${{ inputs.dummy_assets }}
         mc-runtime-test: ${{ inputs.test_mod }}
         headlessmc-command: ${{ inputs.headlessmc_command }}
+
+    - name: "Mark client pass"
+      if: success()
+      shell: bash
+      run: echo "CLIENT_RESULT=pass" >> "$GITHUB_ENV"
+
+    - name: "Download server pack"
+      if: ${{ inputs.server_artifact != '' }}
+      uses: actions/download-artifact@v8.0.2
+      with:
+        name: ${{ inputs.server_artifact }}
+        path: pack-server
+
+    - name: "Stage server pack"
+      if: ${{ inputs.server_artifact != '' }}
+      shell: bash
+      run: unzip -oq pack-server/*.zip -d run
+
+    - name: "Server test"
+      if: ${{ inputs.server_artifact != '' }}
+      uses: headlesshq/mc-server-test@2.0.0
+      with:
+        mc: ${{ inputs.mc_version }}
+        modloader: ${{ inputs.loader_type }}
+        java: ${{ inputs.java_version }}
+        headlessmc-command: ${{ inputs.server_headlessmc_command }}
+
+    - name: "Mark server pass"
+      if: ${{ success() && inputs.server_artifact != '' }}
+      shell: bash
+      run: echo "SERVER_RESULT=pass" >> "$GITHUB_ENV"
+
+    - name: "Mark server fail"
+      if: ${{ failure() && inputs.server_artifact != '' }}
+      shell: bash
+      run: echo "SERVER_RESULT=fail" >> "$GITHUB_ENV"
+
+    - name: "Test summary"
+      if: always()
+      shell: bash
+      run: |
+        {
+          echo "### Runtime test"
+          echo ""
+          echo "| Check | Result |"
+          echo "|---|---|"
+          echo "| Client \`${{ inputs.mc_version }}/${{ inputs.loader_type }}\` | $CLIENT_RESULT |"
+          echo "| Server | $SERVER_RESULT |"
+        } >> "$GITHUB_STEP_SUMMARY"
 
     - name: "Upload logs"
       if: ${{ always() && inputs.artifact_logs == 'true' }}
@@ -74,7 +132,7 @@ runs:
         if-no-files-found: warn
 
     - name: "Collect failure details"
-      if: ${{ failure() && (github.event_name == 'pull_request' || inputs.pr_number != '') }}
+      if: failure()
       shell: bash
       run: |
         {
@@ -90,6 +148,7 @@ runs:
           fi
           echo '```'
         } > pr-comment.md
+        cat pr-comment.md >> "$GITHUB_STEP_SUMMARY"
 
     - name: "Comment PR on failure"
       if: ${{ failure() && (github.event_name == 'pull_request' || inputs.pr_number != '') }}

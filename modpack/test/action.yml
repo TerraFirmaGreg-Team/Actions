@@ -70,6 +70,7 @@ runs:
         xvfb: ${{ inputs.xvfb }}
         dummy-assets: ${{ inputs.dummy_assets }}
         mc-runtime-test: ${{ inputs.test_mod }}
+        cache-mc: github
         headlessmc-command: ${{ inputs.headlessmc_command }}
 
     - name: "Mark client pass"
@@ -96,6 +97,7 @@ runs:
         mc: ${{ inputs.mc_version }}
         modloader: ${{ inputs.loader_type }}
         java: ${{ inputs.java_version }}
+        cache-mc: 'true'
         headlessmc-command: ${{ inputs.server_headlessmc_command }}
 
     - name: "Mark server pass"
@@ -117,7 +119,7 @@ runs:
           echo ""
           echo "| Check | Result |"
           echo "|---|---|"
-          echo "| Client \`${{ inputs.mc_version }}/${{ inputs.loader_type }}\` | $CLIENT_RESULT |"
+          echo "| Client | $CLIENT_RESULT |"
           echo "| Server | $SERVER_RESULT |"
         } >> "$GITHUB_STEP_SUMMARY"
 

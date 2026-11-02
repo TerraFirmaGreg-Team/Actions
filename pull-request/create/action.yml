@@ -2,6 +2,18 @@ name: "Create Pull Request"
 description: "Create PR unless one exists"
 
 inputs:
+  repository:
+    description: "Target repo owner/name — defaults to the calling repo"
+    required: false
+    default: ""
+  repository_path:
+    description: "Path where `repository` is already checked out ('' = the action checks it out at the workspace root)"
+    required: false
+    default: ""
+  checkout_token:
+    description: "Token for the internal checkout (defaults to github_token, then GITHUB_TOKEN)"
+    required: false
+    default: ""
   source_branch:
     required: false
     default: "dev"
@@ -57,8 +69,11 @@ runs:
   using: "composite"
   steps:
     - name: "Checkout"
+      if: ${{ inputs.repository_path == '' }}
       uses: actions/checkout@v7.0.1
       with:
+        repository: ${{ inputs.repository }}
+        token: ${{ inputs.checkout_token || inputs.github_token || github.token }}
         fetch-depth: 0
 
     - name: "Check existing PRs"
@@ -68,12 +83,14 @@ runs:
         github-token: ${{ inputs.github_token || github.token }}
         result-encoding: string
         script: |
+          const slug = '${{ inputs.repository }}';
+          const [owner, name] = slug ? slug.split('/') : [context.repo.owner, context.repo.repo];
           try {
             const { data: prs } = await github.rest.pulls.list({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
+              owner,
+              repo: name,
               state: 'open',
-              head: `${context.repo.owner}:${{ inputs.source_branch }}`,
+              head: `${owner}:${{ inputs.source_branch }}`,
               base: '${{ inputs.target_branch }}'
             });
             core.setOutput('exists', prs.length > 0);
@@ -95,11 +112,13 @@ runs:
         github-token: ${{ inputs.github_token || github.token }}
         result-encoding: string
         script: |
+          const slug = '${{ inputs.repository }}';
+          const [owner, name] = slug ? slug.split('/') : [context.repo.owner, context.repo.repo];
           const version = '${{ inputs.milestone }}';
           try {
             const milestones = await github.rest.issues.listMilestones({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
+              owner,
+              repo: name,
               state: 'all'
             });
             const exists = milestones.data.some(m => m.title === version);
@@ -133,6 +152,8 @@ runs:
       uses: devops-infra/action-pull-request@v1.4.0
       with:
         github_token: ${{ inputs.github_token || github.token }}
+        repository: ${{ inputs.repository }}
+        repository_path: ${{ inputs.repository_path || '.' }}
         source_branch: ${{ inputs.source_branch }}
         target_branch: ${{ inputs.target_branch }}
         milestone: ${{ inputs.milestone != '' && steps.check_milestone.outputs.result == 'true' && inputs.milestone || '' }}

@@ -98,7 +98,8 @@ runs:
       with:
         repo: ${{ inputs.exporter_repo }}
         version: ${{ inputs.exporter_version }}
-        file: ${{ inputs.exporter_file || format('game-exporter-{0}.jar', inputs.platform) }}
+        file: ${{ inputs.exporter_file || format('Game-Exporter-{0}-.*[.]jar', inputs.platform == 'vintage' && 'Vintage' || 'Modern') }}
+        regex: ${{ inputs.exporter_file == '' }}
         target: run/mods/game-exporter.jar
         token: ${{ inputs.exporter_token || github.token }}
 

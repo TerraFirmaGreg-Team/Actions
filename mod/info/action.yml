@@ -8,6 +8,10 @@ inputs:
   required_files:
     required: false
     default: "gradle.properties, build.gradle, README.md, src"
+  platforms_dir:
+    description: "Dir with per-platform subprojects ('auto' tries projects then modules; '' = single-version)"
+    required: false
+    default: "auto"
 
 outputs:
   name:
@@ -26,6 +30,12 @@ outputs:
     value: ${{ steps.check.outputs.game_versions }}
   java_version:
     value: ${{ steps.check.outputs.java_version }}
+  java_versions:
+    description: "Root + platform java versions, multiline"
+    value: ${{ steps.discover.outputs.java_versions }}
+  platforms:
+    description: "JSON array of publishable platforms for matrix"
+    value: ${{ steps.discover.outputs.platforms }}
   exists:
     value: ${{ steps.tag_check.outputs.exists }}
   make_release:
@@ -89,6 +99,61 @@ runs:
         echo "exists=$TAG_EXISTS" >> "$GITHUB_OUTPUT"
         echo "make_release=$make_release" >> "$GITHUB_OUTPUT"
 
+    - name: "Discover platforms"
+      id: discover
+      shell: bash
+      run: |
+        DIR="${{ inputs.platforms_dir }}"
+        if [ "$DIR" = "auto" ]; then
+          DIR=""
+          for d in projects modules; do
+            [ -d "$d" ] && DIR="$d" && break
+          done
+        elif [ -n "$DIR" ] && [ ! -d "$DIR" ]; then
+          echo "::error::platforms_dir '$DIR' not found"
+          exit 1
+        fi
+
+        prop() { grep -E "^[[:space:]]*$2[[:space:]]*=" "$1" | head -n1 | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]+$//' | tr -d '\r'; }
+
+        NAME="${{ steps.check.outputs.name }}"
+        platforms="[]"
+        javas=""
+        add_java() { [ -n "$1" ] && [[ $'\n'"$javas"$'\n' != *$'\n'"$1"$'\n'* ]] && javas="${javas:+$javas$'\n'}$1" || true; }
+        add_java "${{ steps.project_info.outputs.java_version }}"
+
+        if [ -n "$DIR" ]; then
+          for f in "$DIR"/*/gradle.properties; do
+            [ -f "$f" ] || continue
+            suffix="$(prop "$f" mod_name_suffix)"
+            loader="$(prop "$f" loader)"
+            mc="$(prop "$f" minecraft_version)"
+            [ -n "$suffix" ] && [ -n "$loader" ] && [ -n "$mc" ] || continue
+            id="$(basename "$(dirname "$f")")"
+            java="$(prop "$f" java_version)"
+            platforms="$(jq -c \
+              --arg id "$id" --arg base "${NAME}-${suffix}" --arg suffix "$suffix" \
+              --arg loader "$loader" --arg mc "$mc" --arg java "$java" \
+              '. + [{id: $id, base: $base, suffix: $suffix, loader: $loader, game_versions: $mc, java: $java}]' <<< "$platforms")"
+            add_java "$java"
+          done
+        fi
+
+        if [ "$platforms" = "[]" ]; then
+          platforms="$(jq -cn \
+            --arg base "$NAME" --arg suffix "${{ steps.project_info.outputs.mod_name_suffix }}" \
+            --arg loader "${{ steps.project_info.outputs.loader }}" --arg mc "${{ steps.project_info.outputs.minecraft_version }}" \
+            --arg java "${{ steps.project_info.outputs.java_version }}" \
+            '[{id: "main", base: $base, suffix: $suffix, loader: $loader, game_versions: $mc, java: $java}]')"
+        fi
+
+        echo "platforms=$platforms" >> "$GITHUB_OUTPUT"
+        {
+          echo 'java_versions<<EOF'
+          echo "$javas"
+          echo 'EOF'
+        } >> "$GITHUB_OUTPUT"
+
     - name: "Summary"
       uses: WcAServices/markdown-template-action@v1.1.1
       with:
@@ -103,3 +168,4 @@ runs:
           | **Loaders Version** | `${{ steps.check.outputs.loaders_version }}` |
           | **Tag Exists** | `${{ steps.check.outputs.exists }}` |
           | **Make Release** | `${{ steps.check.outputs.make_release }}` |
+          | **Platforms** | `${{ steps.discover.outputs.platforms }}` |

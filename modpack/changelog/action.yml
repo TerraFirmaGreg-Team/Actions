@@ -1,0 +1,130 @@
+name: "Modpack: Changelog"
+description: "Sync GitHub release notes into the wiki changelog (PR + automerge)"
+
+inputs:
+  pack:
+    description: "Changelog folder: content/changelog/<pack>/en_us"
+    required: true
+  repo:
+    description: "Repository to read releases from (owner/name)"
+    required: true
+  tag:
+    description: "Triggering release tag (PR title only — all releases are synced)"
+    required: false
+    default: ""
+  wiki_owner:
+    required: false
+    default: "TerraFirmaGreg-Team"
+  wiki_repo:
+    description: "Wiki repository name (without owner)"
+    required: false
+    default: "Wiki-Dev"
+  app_id:
+    description: "GitHub App client id installed on the wiki repo"
+    required: true
+  app_private_key:
+    description: "GitHub App private key"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Generate GitHub App Token"
+      id: token
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ inputs.app_id }}
+        private-key: ${{ inputs.app_private_key }}
+        owner: ${{ inputs.wiki_owner }}
+        repositories: ${{ inputs.wiki_repo }}
+
+    - name: "Checkout wiki"
+      uses: actions/checkout@v7.0.1
+      with:
+        repository: ${{ inputs.wiki_owner }}/${{ inputs.wiki_repo }}
+        token: ${{ steps.token.outputs.token }}
+        path: wiki
+
+    - name: "Write changelog files"
+      uses: actions/github-script@v9.0.0
+      with:
+        github-token: ${{ github.token }}
+        script: |
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const pack = '${{ inputs.pack }}';
+          const [owner, name] = '${{ inputs.repo }}'.split('/');
+          const dir = path.join('wiki', 'content', 'changelog', pack, 'en_us');
+          fs.mkdirSync(dir, { recursive: true });
+
+          const releases = await github.paginate(
+            github.rest.repos.listReleases,
+            { owner, repo: name, per_page: 100 },
+          );
+          const fileName = (tag) =>
+            tag.replace(/^v/i, '').replace(/[^\w.\-]/g, '-');
+          const names = new Set();
+          releases.forEach((release, index) => {
+            const file = `${fileName(release.tag_name)}.md`;
+            names.add(file);
+            const title = release.tag_name
+              .replace(/^v/i, '')
+              .replaceAll("'", "''");
+            const date = new Date(
+              release.published_at ?? release.created_at,
+            ).toISOString().slice(0, 10);
+            fs.writeFileSync(
+              path.join(dir, file),
+              `---\ntitle: '${title}'\ndate: ${date}\norder: ${index}\n---\n\n${(release.body ?? '').trim()}\n`,
+              'utf8',
+            );
+          });
+          for (const file of fs.readdirSync(dir)) {
+            if (file.endsWith('.md') && !names.has(file)) {
+              fs.rmSync(path.join(dir, file));
+            }
+          }
+          core.info(`${pack}: ${releases.length} releases written to ${dir}`);
+
+    - name: "Commit changelog branch"
+      id: commit
+      shell: bash
+      working-directory: wiki
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git checkout -B "changelog/${{ inputs.pack }}"
+        git add "content/changelog/${{ inputs.pack }}"
+        if git diff --cached --quiet; then
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          echo "no changelog changes"
+        else
+          git commit -m "docs(changelog): ${{ inputs.pack }} ${{ inputs.tag }}"
+          git push --force-with-lease -u origin "changelog/${{ inputs.pack }}"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: "Create PR"
+      id: pr
+      if: steps.commit.outputs.changed == 'true'
+      uses: TerraFirmaGreg-Team/Actions/pull-request/create@main
+      with:
+        repository: ${{ inputs.wiki_owner }}/${{ inputs.wiki_repo }}
+        repository_path: wiki
+        source_branch: changelog/${{ inputs.pack }}
+        target_branch: main
+        title: "docs(changelog): ${{ inputs.pack }} ${{ inputs.tag }}"
+        body: "Automated changelog sync for **${{ inputs.pack }}**."
+        draft: "false"
+        github_token: ${{ steps.token.outputs.token }}
+
+    - name: "Automerge PR"
+      if: steps.commit.outputs.changed == 'true' && steps.pr.outputs.pr_number != ''
+      uses: TerraFirmaGreg-Team/Actions/pull-request/automerge@main
+      with:
+        github_token: ${{ steps.token.outputs.token }}
+        pull_request: ${{ inputs.wiki_owner }}/${{ inputs.wiki_repo }}/${{ steps.pr.outputs.pr_number }}
+        merge_method: squash
+        merge_labels: ""
+        required_approvals: "0"
+        delete_branch: "true"

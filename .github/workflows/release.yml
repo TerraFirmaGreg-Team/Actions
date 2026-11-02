@@ -3,14 +3,6 @@ name: Release Actions
 on:
   push:
     branches: [main]
-    paths:
-      - 'mod/**'
-      - 'modpack/**'
-      - 'pull-request/**'
-      - 'discord/**'
-      - 'crowdin/**'
-      - 'README.md'
-      - '.github/workflows/release.yml'
   workflow_dispatch:
 
 jobs:

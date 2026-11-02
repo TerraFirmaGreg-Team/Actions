@@ -23,11 +23,11 @@ outputs:
   full_name:
     value: ${{ steps.check.outputs.full_name }}
   loaders:
-    value: ${{ steps.check.outputs.loaders }}
+    value: ${{ steps.discover.outputs.loaders }}
   loaders_version:
-    value: ${{ steps.check.outputs.loaders_version }}
+    value: ${{ steps.discover.outputs.loaders_version }}
   game_versions:
-    value: ${{ steps.check.outputs.game_versions }}
+    value: ${{ steps.discover.outputs.game_versions }}
   java_version:
     value: ${{ steps.check.outputs.java_version }}
   java_versions:
@@ -114,11 +114,14 @@ runs:
           exit 1
         fi
 
-        prop() { grep -E "^[[:space:]]*$2[[:space:]]*=" "$1" | head -n1 | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]+$//' | tr -d '\r'; }
+        prop() { grep -E "^[[:space:]]*$2[[:space:]]*=" "$1" | head -n1 | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]+$//' | tr -d '\r'; return 0; }
 
         NAME="${{ steps.check.outputs.name }}"
         platforms="[]"
         javas=""
+        mcs="${{ steps.project_info.outputs.minecraft_version }}"
+        ldrs="${{ steps.project_info.outputs.loader }}"
+        lvrs="${{ steps.project_info.outputs.loader_version || steps.project_info.outputs.forge_version }}"
         add_java() { [ -n "$1" ] && [[ $'\n'"$javas"$'\n' != *$'\n'"$1"$'\n'* ]] && javas="${javas:+$javas$'\n'}$1" || true; }
         add_java "${{ steps.project_info.outputs.java_version }}"
 
@@ -131,6 +134,10 @@ runs:
             [ -n "$suffix" ] && [ -n "$loader" ] && [ -n "$mc" ] || continue
             id="$(basename "$(dirname "$f")")"
             java="$(prop "$f" java_version)"
+            lv="$(prop "$f" loader_version)"
+            mcs="${mcs:+$mcs$'\n'}$mc"
+            ldrs="${ldrs:+$ldrs$'\n'}$loader"
+            lvrs="${lvrs:+$lvrs$'\n'}$lv"
             platforms="$(jq -c \
               --arg id "$id" --arg base "${NAME}-${suffix}" --arg suffix "$suffix" \
               --arg loader "$loader" --arg mc "$mc" --arg java "$java" \
@@ -147,7 +154,12 @@ runs:
             '[{id: "main", base: $base, suffix: $suffix, loader: $loader, game_versions: $mc, java: $java}]')"
         fi
 
+        join_uniq() { printf '%s\n' $1 | awk 'NF && !seen[$0]++ { printf sep $0; sep=", " }'; }
+
         echo "platforms=$platforms" >> "$GITHUB_OUTPUT"
+        echo "game_versions=$(join_uniq "$mcs")" >> "$GITHUB_OUTPUT"
+        echo "loaders=$(join_uniq "$ldrs")" >> "$GITHUB_OUTPUT"
+        echo "loaders_version=$(join_uniq "$lvrs")" >> "$GITHUB_OUTPUT"
         {
           echo 'java_versions<<EOF'
           echo "$javas"
@@ -163,9 +175,9 @@ runs:
           | **Name** | `${{ steps.check.outputs.name }}` |
           | **Version** | `${{ steps.check.outputs.version }}` |
           | **Release Type** | `${{ steps.check.outputs.version_type }}` |
-          | **Game Versions** | `${{ steps.check.outputs.game_versions }}` |
-          | **Loaders** | `${{ steps.check.outputs.loaders }}` |
-          | **Loaders Version** | `${{ steps.check.outputs.loaders_version }}` |
+          | **Game Versions** | `${{ steps.discover.outputs.game_versions }}` |
+          | **Loaders** | `${{ steps.discover.outputs.loaders }}` |
+          | **Loaders Version** | `${{ steps.discover.outputs.loaders_version }}` |
           | **Tag Exists** | `${{ steps.check.outputs.exists }}` |
           | **Make Release** | `${{ steps.check.outputs.make_release }}` |
           | **Platforms** | `${{ steps.discover.outputs.platforms }}` |

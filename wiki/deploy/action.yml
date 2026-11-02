@@ -1,0 +1,103 @@
+name: "Wiki: Deploy"
+description: "Generate the Cloudflare worker config, build the OpenNext output and deploy"
+
+inputs:
+  api_token:
+    description: "Cloudflare API token (Workers + D1 edit)"
+    required: true
+  account_id:
+    description: "Cloudflare account id"
+    required: true
+  github_token:
+    description: "Token used during the build for GitHub API access"
+    required: true
+  worker_name:
+    required: false
+    default: "wiki"
+  compatibility_date:
+    required: false
+    default: "2025-10-01"
+  d1_database_id:
+    description: "D1 database id bound as DB"
+    required: true
+  dump_storage_url:
+    description: "Value for NEXT_PUBLIC_DUMP_STORAGE_URL"
+    required: true
+  app_id:
+    description: "GitHub App id (installation tokens)"
+    required: true
+  app_private_key:
+    description: "GitHub App private key"
+    required: true
+  app_client_id:
+    description: "GitHub App OAuth client id"
+    required: true
+  app_secret:
+    description: "GitHub App OAuth client secret"
+    required: true
+  discussions_secret:
+    description: "Cookie encryption secret for comment sessions"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Generate wrangler config"
+      shell: bash
+      run: |
+        cat > wrangler.json <<'EOF'
+        {
+          "name": "${{ inputs.worker_name }}",
+          "main": ".open-next/worker.js",
+          "compatibility_date": "${{ inputs.compatibility_date }}",
+          "compatibility_flags": [
+            "nodejs_compat",
+            "nodejs_compat_populate_process_env"
+          ],
+          "assets": {
+            "directory": ".open-next/assets",
+            "binding": "ASSETS"
+          },
+          "observability": {
+            "enabled": true
+          },
+          "d1_databases": [
+            {
+              "binding": "DB",
+              "database_name": "wiki",
+              "database_id": "${{ inputs.d1_database_id }}"
+            }
+          ]
+        }
+        EOF
+
+    - name: "Build OpenNext"
+      shell: bash
+      run: pnpm exec opennextjs-cloudflare build
+      env:
+        NODE_OPTIONS: --import tsx
+        NEXT_PUBLIC_DUMP_STORAGE_URL: ${{ inputs.dump_storage_url }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+
+    - name: "Deploy"
+      uses: cloudflare/wrangler-action@v4
+      with:
+        apiToken: ${{ inputs.api_token }}
+        accountId: ${{ inputs.account_id }}
+        packageManager: pnpm
+        command: deploy
+        vars: |
+          NEXT_PUBLIC_DUMP_STORAGE_URL
+        secrets: |
+          APP_ID
+          APP_PRIVATE_KEY
+          APP_CLIENT_ID
+          APP_SECRET
+          DISCUSSIONS_SECRET
+      env:
+        NEXT_PUBLIC_DUMP_STORAGE_URL: ${{ inputs.dump_storage_url }}
+        APP_ID: ${{ inputs.app_id }}
+        APP_PRIVATE_KEY: ${{ inputs.app_private_key }}
+        APP_CLIENT_ID: ${{ inputs.app_client_id }}
+        APP_SECRET: ${{ inputs.app_secret }}
+        DISCUSSIONS_SECRET: ${{ inputs.discussions_secret }}

@@ -38,6 +38,9 @@ inputs:
   discussions_secret:
     description: "Cookie encryption secret for comment sessions"
     required: true
+  wrangler_version:
+    required: false
+    default: "4.156.0"
 
 runs:
   using: "composite"
@@ -80,21 +83,18 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github_token }}
 
     - name: "Deploy"
-      uses: cloudflare/wrangler-action@v4
-      with:
-        apiToken: ${{ inputs.api_token }}
-        accountId: ${{ inputs.account_id }}
-        packageManager: pnpm
-        command: deploy
-        vars: |
-          NEXT_PUBLIC_DUMP_STORAGE_URL
-        secrets: |
-          APP_ID
-          APP_PRIVATE_KEY
-          APP_CLIENT_ID
-          APP_SECRET
-          DISCUSSIONS_SECRET
+      shell: bash
+      run: |
+        set -euo pipefail
+        pnpm add -Dw "wrangler@${{ inputs.wrangler_version }}"
+        for name in APP_ID APP_PRIVATE_KEY APP_CLIENT_ID APP_SECRET DISCUSSIONS_SECRET; do
+          printf '%s' "${!name}" | pnpm exec wrangler secret put "$name"
+        done
+        pnpm exec wrangler deploy \
+          --var "NEXT_PUBLIC_DUMP_STORAGE_URL:${NEXT_PUBLIC_DUMP_STORAGE_URL}"
       env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.api_token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.account_id }}
         NEXT_PUBLIC_DUMP_STORAGE_URL: ${{ inputs.dump_storage_url }}
         APP_ID: ${{ inputs.app_id }}
         APP_PRIVATE_KEY: ${{ inputs.app_private_key }}

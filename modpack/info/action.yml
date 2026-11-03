@@ -148,7 +148,7 @@ runs:
         fi
 
         is_released=true
-        ver_re=$(printf '%s' "$CHANGELOG_VERSION" | sed 's/[][.*^$]/\\&/g')
+        ver_re=$(printf '%s' "$CHANGELOG_VERSION" | sed 's/[][\.*^$]/\\&/g')
         grep -m1 -E "^##.*${ver_re}" "${{ inputs.changelog_path }}" | grep -qi "unreleased" && is_released=false
 
         make_release=$([ "$TAG_EXISTS" = "false" ] && [ "$dev_env" = "false" ] && [ "$is_released" = "true" ] && echo true || echo false)

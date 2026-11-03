@@ -15,6 +15,10 @@ inputs:
     description: "modpack/info output"
     required: false
     default: "false"
+  make_pr:
+    description: "modpack/info output — release PR pending (dev pushes only)"
+    required: false
+    default: "false"
 
 outputs:
   test:
@@ -38,11 +42,12 @@ runs:
         BUILD: ${{ inputs.build_result }}
         RELEASE: ${{ inputs.release_result }}
         MAKE_RELEASE: ${{ inputs.make_release }}
+        MAKE_PR: ${{ inputs.make_pr }}
       run: |
         manual() { [ "$EVENT" = "workflow_dispatch" ]; }
         flag() { echo "$1=$2" | tee -a "$GITHUB_OUTPUT"; }
 
-        flag test      "$([ "$REF" != "main" ] && [ "$BUILD" = "success" ] && echo true || echo false)"
+        flag test      "$([ "$REF" != "main" ] && [ "$BUILD" = "success" ] && [ "$MAKE_PR" = "true" ] && echo true || echo false)"
         flag export    "$([ "$INFO" = "success" ] && { manual || { [ "$BUILD" = "success" ] && [ "$MAKE_RELEASE" = "true" ]; }; } && echo true || echo false)"
         flag changelog "$([ "$RELEASE" = "success" ] && echo true || echo false)"
         flag message   "$([ "$RELEASE" = "success" ] && echo true || echo false)"

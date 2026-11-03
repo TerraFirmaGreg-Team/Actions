@@ -177,7 +177,7 @@ runs:
         {
           echo '### Runtime test failed'
           echo '```'
-          crash=$(ls -t $dir/crash-reports/*.txt 2>/dev/null | head -1)
+          crash=$(ls -t $dir/crash-reports/*.txt 2>/dev/null | head -1 || true)
           if [ -n "$crash" ]; then
             head -80 "$crash"
           elif [ -f $dir/logs/latest.log ]; then

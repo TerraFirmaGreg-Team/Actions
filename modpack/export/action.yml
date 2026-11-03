@@ -36,6 +36,7 @@ inputs:
     required: false
     default: "latest"
   exporter_file:
+    description: "Asset name or glob pattern (default Game-Exporter-<Platform>-*.jar)"
     required: false
     default: ""
   exporter_token:
@@ -107,14 +108,11 @@ runs:
 
     - name: "Fetch released pack"
       if: ${{ inputs.pack_artifact == '' }}
-      uses: dsaltares/fetch-gh-release-asset@1.1.2
-      with:
-        repo: ${{ github.repository }}
-        version: ${{ steps.tag.outputs.tag }}
-        file: ".*-multimc[.]zip"
-        regex: true
-        target: pack/pack-multimc.zip
-        token: ${{ github.token }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh release download "${{ steps.tag.outputs.tag }}" --repo "${{ github.repository }}" --pattern "*-multimc.zip" --dir pack --clobber
 
     - name: "Resolve dump version"
       id: resolve
@@ -143,14 +141,16 @@ runs:
         cp -rf pack-unzip/.minecraft/. run/
 
     - name: "Download game-exporter"
-      uses: dsaltares/fetch-gh-release-asset@1.1.2
-      with:
-        repo: ${{ inputs.exporter_repo }}
-        version: ${{ inputs.exporter_version }}
-        file: ${{ inputs.exporter_file || format('Game-Exporter-{0}-.*[.]jar', inputs.platform == 'vintage' && 'Vintage' || 'Modern') }}
-        regex: ${{ inputs.exporter_file == '' }}
-        target: run/mods/game-exporter.jar
-        token: ${{ inputs.exporter_token || github.token }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.exporter_token || github.token }}
+      run: |
+        VER="${{ inputs.exporter_version }}"
+        [ "$VER" != "latest" ] || VER="$(gh release view --repo "${{ inputs.exporter_repo }}" --json tagName -q .tagName)"
+        FILE="${{ inputs.exporter_file }}"
+        [ -n "$FILE" ] || FILE="${{ format('Game-Exporter-{0}-*.jar', inputs.platform == 'vintage' && 'Vintage' || 'Modern') }}"
+        gh release download "$VER" --repo "${{ inputs.exporter_repo }}" --pattern "$FILE" --output run/mods/game-exporter.jar --clobber
+        ls -lh run/mods/game-exporter.jar
 
     - name: "Run live export"
       uses: headlesshq/mc-runtime-test@5.0.0

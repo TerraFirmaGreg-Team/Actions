@@ -2,6 +2,10 @@ name: "Modpack: Info"
 description: "Modpack metadata + changelog + release/PR flags"
 
 inputs:
+  ref:
+    description: "Branch/tag/SHA to inspect (empty = workflow ref)"
+    required: false
+    default: ""
   stable_branch:
     required: false
     default: "main"
@@ -64,6 +68,7 @@ runs:
       uses: actions/checkout@v7.0.1
       with:
         fetch-depth: 0
+        ref: ${{ inputs.ref }}
 
     - name: "Validate pakku files"
       uses: andstor/file-existence-action@v3.1.0

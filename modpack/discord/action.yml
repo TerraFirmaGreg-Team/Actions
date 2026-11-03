@@ -59,5 +59,6 @@ runs:
           [CurseForge](${{ inputs.curseforge_url }}) • [ServerPack](https://github.com/${{ github.repository }}/releases/download/${{ inputs.github_tag }}/${{ inputs.project_full_name }}-serverpack.zip) • [GitHub](${{ inputs.github_url }}) • [Issues](https://github.com/${{ github.repository }}/issues)
           ```markdown
           ${{ steps.truncated.outputs.text }}
-          - ...```
-          ** [Read more...](${{ inputs.github_url }}) **
+          - ...
+          ```
+          **[Read more...](${{ inputs.github_url }})**

@@ -77,4 +77,5 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
         CROWDIN_PERSONAL_TOKEN: ${{ inputs.crowdin_token }}
+        CROWDIN_TOKEN: ${{ inputs.crowdin_token }}
         CROWDIN_ID: ${{ inputs.crowdin_id }}

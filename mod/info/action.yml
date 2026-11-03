@@ -123,7 +123,6 @@ runs:
         ldrs="${{ steps.project_info.outputs.loader }}"
         lvrs="${{ steps.project_info.outputs.loader_version || steps.project_info.outputs.forge_version }}"
         add_java() { [ -n "$1" ] && [[ $'\n'"$javas"$'\n' != *$'\n'"$1"$'\n'* ]] && javas="${javas:+$javas$'\n'}$1" || true; }
-        add_java "${{ steps.project_info.outputs.java_version }}"
 
         if [ -n "$DIR" ]; then
           for f in "$DIR"/*/gradle.properties; do
@@ -153,6 +152,8 @@ runs:
             --arg java "${{ steps.project_info.outputs.java_version }}" \
             '[{id: "main", base: $base, suffix: $suffix, loader: $loader, game_versions: $mc, java: $java}]')"
         fi
+
+        add_java "${{ steps.project_info.outputs.java_version }}"
 
         join_uniq() { printf '%s\n' $1 | awk 'NF && !seen[$0]++ { printf sep $0; sep=", " }'; }
 

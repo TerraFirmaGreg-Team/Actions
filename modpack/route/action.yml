@@ -1,0 +1,48 @@
+name: "Modpack: Route"
+description: "Job-routing flags for the modpack pipeline (test/export/changelog/message)"
+
+inputs:
+  info_result:
+    description: "needs.info.result (success|failure|cancelled|skipped)"
+    required: true
+  build_result:
+    description: "needs.build.result (success|failure|cancelled|skipped)"
+    required: true
+  release_result:
+    description: "needs.release.result"
+    required: true
+  make_release:
+    description: "modpack/info output"
+    required: false
+    default: "false"
+
+outputs:
+  test:
+    value: ${{ steps.r.outputs.test }}
+  export:
+    value: ${{ steps.r.outputs.export }}
+  changelog:
+    value: ${{ steps.r.outputs.changelog }}
+  message:
+    value: ${{ steps.r.outputs.message }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: r
+      shell: bash
+      env:
+        REF: ${{ github.ref_name }}
+        EVENT: ${{ github.event_name }}
+        INFO: ${{ inputs.info_result }}
+        BUILD: ${{ inputs.build_result }}
+        RELEASE: ${{ inputs.release_result }}
+        MAKE_RELEASE: ${{ inputs.make_release }}
+      run: |
+        manual() { [ "$EVENT" = "workflow_dispatch" ]; }
+        flag() { echo "$1=$2" | tee -a "$GITHUB_OUTPUT"; }
+
+        flag test      "$([ "$REF" != "main" ] && [ "$BUILD" = "success" ] && echo true || echo false)"
+        flag export    "$([ "$INFO" = "success" ] && { manual || { [ "$BUILD" = "success" ] && [ "$MAKE_RELEASE" = "true" ]; }; } && echo true || echo false)"
+        flag changelog "$([ "$RELEASE" = "success" ] && echo true || echo false)"
+        flag message   "$([ "$RELEASE" = "success" ] && echo true || echo false)"

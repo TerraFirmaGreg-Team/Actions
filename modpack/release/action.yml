@@ -51,13 +51,13 @@ inputs:
 
 outputs:
   curseforge-id:
-    value: ${{ steps.publish.outputs.curseforge-id || steps.publish_mr.outputs.curseforge-id }}
+    value: ${{ steps.publish.outputs.curseforge-id }}
   curseforge-url:
-    value: ${{ steps.publish.outputs.curseforge-url || steps.publish_mr.outputs.curseforge-url }}
+    value: ${{ steps.publish.outputs.curseforge-url }}
   github-tag:
-    value: ${{ steps.publish.outputs.github-tag || steps.publish_mr.outputs.github-tag }}
+    value: ${{ steps.publish.outputs.github-tag }}
   github-url:
-    value: ${{ steps.publish.outputs.github-url || steps.publish_mr.outputs.github-url }}
+    value: ${{ steps.publish.outputs.github-url }}
 
 runs:
   using: "composite"
@@ -72,40 +72,11 @@ runs:
 
     - name: "Publish"
       id: publish
-      if: ${{ inputs.enable_modrinth != 'true' }}
       uses: Xikaro/game-publish@main
       with:
-        curseforge-id: ${{ inputs.curseforge_id }}
-        curseforge-token: ${{ inputs.curseforge_token }}
-        curseforge-files: ${{ inputs.project_full_name }}-curseforge.zip
-        curseforge-server-files: ${{ inputs.project_full_name }}-serverpack.zip
-        curseforge-server-name: ${{ inputs.curseforge_server_name }}
-        github-tag: ${{ inputs.project_version }}
-        github-token: ${{ inputs.github_token }}
-        files: ${{ inputs.files }}
-        name: ${{ inputs.project_full_name }}
-        version: ${{ inputs.project_version }}
-        version-type: ${{ inputs.release_type }}
-        loaders: ${{ inputs.loader_type }}
-        game-versions: ${{ inputs.mc_version }}
-        environment: ${{ inputs.environment }}
-        rollback: true
-        changelog: |
-          ${{ inputs.changelog }}
-          ${{ inputs.diff }}
-        changelog-format: markdown
-        retry-attempts: 2
-        retry-delay: 10000
-        fail-mode: fail
-
-    - name: "Publish (with Modrinth)"
-      id: publish_mr
-      if: ${{ inputs.enable_modrinth == 'true' }}
-      uses: Xikaro/game-publish@main
-      with:
-        modrinth-id: ${{ inputs.modrinth_id }}
-        modrinth-token: ${{ inputs.modrinth_token }}
-        modrinth-files: ${{ inputs.project_full_name }}-modrinth.mrpack
+        modrinth-id: ${{ inputs.enable_modrinth == 'true' && inputs.modrinth_id || '' }}
+        modrinth-token: ${{ inputs.enable_modrinth == 'true' && inputs.modrinth_token || '' }}
+        modrinth-files: ${{ inputs.enable_modrinth == 'true' && format('{0}-modrinth.mrpack', inputs.project_full_name) || '' }}
         curseforge-id: ${{ inputs.curseforge_id }}
         curseforge-token: ${{ inputs.curseforge_token }}
         curseforge-files: ${{ inputs.project_full_name }}-curseforge.zip

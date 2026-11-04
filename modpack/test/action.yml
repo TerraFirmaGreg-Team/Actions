@@ -66,6 +66,12 @@ runs:
         echo "CLIENT_RESULT=fail" >> "$GITHUB_ENV"
         echo "SERVER_RESULT=skipped" >> "$GITHUB_ENV"
 
+    - name: "Setup Java"
+      uses: actions/setup-java@v6.1.0
+      with:
+        distribution: temurin
+        java-version: ${{ inputs.java_version }}
+
     - name: "Client test"
       uses: headlesshq/mc-runtime-test@5.0.0
       with:

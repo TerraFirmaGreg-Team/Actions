@@ -140,6 +140,12 @@ runs:
         unzip -oq pack/*.zip -d pack-unzip
         cp -rf pack-unzip/.minecraft/. run/
 
+    - name: "Setup Java"
+      uses: actions/setup-java@v6.1.0
+      with:
+        distribution: temurin
+        java-version: ${{ inputs.java_version }}
+
     - name: "Download game-exporter"
       shell: bash
       env:

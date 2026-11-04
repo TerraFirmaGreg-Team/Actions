@@ -67,11 +67,14 @@ runs:
 
     - name: "Download pakku.jar"
       if: ${{ inputs.pakku_jar == 'download' }}
-      uses: dsaltares/fetch-gh-release-asset@1.1.2
-      with:
-        repo: ${{ inputs.pakku_repo }}
-        version: ${{ inputs.pakku_version }}
-        file: pakku.jar
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -eo pipefail
+        VER="${{ inputs.pakku_version }}"
+        [ "$VER" != "latest" ] || VER="$(gh release view --repo "${{ inputs.pakku_repo }}" --json tagName -q .tagName)"
+        gh release download "$VER" --repo "${{ inputs.pakku_repo }}" --pattern "pakku.jar" --clobber
 
     - name: "Apply placeholders"
       if: ${{ inputs.version_files != '' || inputs.loader_files != '' }}

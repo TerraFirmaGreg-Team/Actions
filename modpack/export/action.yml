@@ -149,10 +149,28 @@ runs:
     - name: "Pin game JVM"
       shell: bash
       run: |
-        mkdir -p HeadlessMC
+        mkdir -p HeadlessMC/profiles
         cat <<EOF >> HeadlessMC/config.properties
-        hmc.auto.download.java=false
+        hmc.java.download=false
         hmc.java.versions=$JAVA_HOME/bin/java
+        EOF
+        # HMC 3 has no --java flag: launch resolves a saved profile whose
+        # "version" matches <loader> <mc>; its javaVersion wins over version.json.
+        cat <<EOF > "HeadlessMC/profiles/${{ inputs.loader_type }}-${{ inputs.mc_version }}.json"
+        {
+          "name": "${{ inputs.loader_type }}-${{ inputs.mc_version }}",
+          "version": {"platform": "${{ inputs.loader_type }}", "version": "${{ inputs.mc_version }}"},
+          "currentVersion": {"platform": "${{ inputs.loader_type }}", "version": "${{ inputs.mc_version }}"},
+          "path": "$PWD/run",
+          "options": {"resolution": null, "quickPlayPath": null, "join": null, "demo": false},
+          "patchers": [],
+          "systemProperties": {},
+          "vmArgs": [],
+          "javaVersion": ${{ inputs.java_version }},
+          "eulaStatus": "UNKNOWN",
+          "hasDefaultClientJvmArgs": false,
+          "hmcVersion": 0
+        }
         EOF
 
     - name: "Download game-exporter"

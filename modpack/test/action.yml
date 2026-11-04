@@ -75,10 +75,28 @@ runs:
     - name: "Pin game JVM"
       shell: bash
       run: |
-        mkdir -p HeadlessMC
+        mkdir -p HeadlessMC/profiles
         cat <<EOF >> HeadlessMC/config.properties
-        hmc.auto.download.java=false
+        hmc.java.download=false
         hmc.java.versions=$JAVA_HOME/bin/java
+        EOF
+        # HMC 3 has no --java flag: launch resolves a saved profile whose
+        # "version" matches <loader> <mc>; its javaVersion wins over version.json.
+        cat <<EOF > "HeadlessMC/profiles/${{ inputs.loader_type }}-${{ inputs.mc_version }}.json"
+        {
+          "name": "${{ inputs.loader_type }}-${{ inputs.mc_version }}",
+          "version": {"platform": "${{ inputs.loader_type }}", "version": "${{ inputs.mc_version }}"},
+          "currentVersion": {"platform": "${{ inputs.loader_type }}", "version": "${{ inputs.mc_version }}"},
+          "path": "$PWD/run",
+          "options": {"resolution": null, "quickPlayPath": null, "join": null, "demo": false},
+          "patchers": [],
+          "systemProperties": {},
+          "vmArgs": [],
+          "javaVersion": ${{ inputs.java_version }},
+          "eulaStatus": "UNKNOWN",
+          "hasDefaultClientJvmArgs": false,
+          "hmcVersion": 0
+        }
         EOF
 
     - name: "Client test"
@@ -113,6 +131,21 @@ runs:
         unzip -oq pack-server/*.zip -d server
         ln -sfn server run
 
+    - name: "Pin server JVM"
+      if: ${{ inputs.server_artifact != '' }}
+      shell: bash
+      run: |
+        # `server add` pins profile javaVersion from the vanilla version.json;
+        # a pre-seeded patched file makes the server launch use our JVM.
+        # Requires cache-mc: 'false' below — a cache restore would clobber this file.
+        VJ="$HOME/.minecraft/versions/${{ inputs.mc_version }}/${{ inputs.mc_version }}.json"
+        mkdir -p "$(dirname "$VJ")"
+        URL="$(curl -fsSL "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json" \
+          | jq -r --arg v "${{ inputs.mc_version }}" '.versions[] | select(.id == $v) | .url')"
+        [ -n "$URL" ] || { echo "::error::No ${{ inputs.mc_version }} in Mojang version manifest"; exit 1; }
+        curl -fsSL "$URL" | jq '.javaVersion.majorVersion = ${{ inputs.java_version }}' > "$VJ"
+        grep -o '"javaVersion":[^}]*}' "$VJ"
+
     - name: "Server test"
       if: ${{ inputs.server_artifact != '' }}
       uses: headlesshq/mc-server-test@2.0.0
@@ -120,7 +153,7 @@ runs:
         mc: "${{ inputs.mc_version }} ${{ inputs.loader_version }}"
         modloader: ${{ inputs.loader_type }}
         java: ${{ inputs.java_version }}
-        cache-mc: 'true'
+        cache-mc: 'false'
         headlessmc-command: ${{ inputs.server_headlessmc_command }}
 
     - name: "Mark server pass"

@@ -146,6 +146,15 @@ runs:
         distribution: temurin
         java-version: ${{ inputs.java_version }}
 
+    - name: "Pin game JVM"
+      shell: bash
+      run: |
+        mkdir -p HeadlessMC
+        cat <<EOF >> HeadlessMC/config.properties
+        hmc.auto.download.java=false
+        hmc.java.versions=$JAVA_HOME/bin/java
+        EOF
+
     - name: "Download game-exporter"
       shell: bash
       env:

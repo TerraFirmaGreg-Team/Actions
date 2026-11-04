@@ -72,6 +72,15 @@ runs:
         distribution: temurin
         java-version: ${{ inputs.java_version }}
 
+    - name: "Pin game JVM"
+      shell: bash
+      run: |
+        mkdir -p HeadlessMC
+        cat <<EOF >> HeadlessMC/config.properties
+        hmc.auto.download.java=false
+        hmc.java.versions=$JAVA_HOME/bin/java
+        EOF
+
     - name: "Client test"
       uses: headlesshq/mc-runtime-test@5.0.0
       with:

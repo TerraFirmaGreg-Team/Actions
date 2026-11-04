@@ -56,7 +56,7 @@ inputs:
     default: "false"
   headlessmc_command:
     required: false
-    default: '--jvm "-Djava.awt.headless=true -Xmx16G -Xms8G"'
+    default: '--jvm "-Djava.awt.headless=true -Xmx8G -Xms4G -XX:ActiveProcessorCount=3"'
   timeout_seconds:
     description: "Dump timeout → EXPORT_TIMEOUT_SECONDS"
     required: false
@@ -139,6 +139,10 @@ runs:
         mkdir -p pack-unzip run
         unzip -oq pack/*.zip -d pack-unzip
         cp -rf pack-unzip/.minecraft/. run/
+        [ -f run/config/ftbbackups2.json ] \
+          && sed -i 's/"enabled" *: *true/"enabled": false/' run/config/ftbbackups2.json || true
+        [ -f run/config/ftbbackups.cfg ] \
+          && sed -i 's/B:enabled *= *true/B:enabled=false/' run/config/ftbbackups.cfg || true
 
     - name: "Setup Java"
       uses: actions/setup-java@v6.1.0

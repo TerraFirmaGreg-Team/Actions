@@ -36,7 +36,7 @@ inputs:
     default: "true"
   headlessmc_command:
     required: false
-    default: '--jvm "-Djava.awt.headless=true"'
+    default: '--jvm "-Djava.awt.headless=true -XX:ActiveProcessorCount=3"'
   server_headlessmc_command:
     required: false
     default: '--jvm "-Djava.awt.headless=true"'
@@ -63,6 +63,10 @@ runs:
         unzip -oq pack-client/*.zip -d client-unzip
         cp -rf client-unzip/.minecraft/. client/
         ln -sfn client run
+        [ -f client/config/ftbbackups2.json ] \
+          && sed -i 's/"enabled" *: *true/"enabled": false/' client/config/ftbbackups2.json || true
+        [ -f client/config/ftbbackups.cfg ] \
+          && sed -i 's/B:enabled *= *true/B:enabled=false/' client/config/ftbbackups.cfg || true
         echo "CLIENT_RESULT=fail" >> "$GITHUB_ENV"
         echo "SERVER_RESULT=skipped" >> "$GITHUB_ENV"
 
@@ -130,6 +134,10 @@ runs:
         mkdir -p server
         unzip -oq pack-server/*.zip -d server
         ln -sfn server run
+        [ -f server/config/ftbbackups2.json ] \
+          && sed -i 's/"enabled" *: *true/"enabled": false/' server/config/ftbbackups2.json || true
+        [ -f server/config/ftbbackups.cfg ] \
+          && sed -i 's/B:enabled *= *true/B:enabled=false/' server/config/ftbbackups.cfg || true
 
     - name: "Pin server JVM"
       if: ${{ inputs.server_artifact != '' }}

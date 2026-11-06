@@ -19,6 +19,9 @@ inputs:
   skip_untranslated_strings:
     required: false
     default: "false"
+  skip_untranslated_files:
+    required: false
+    default: "false"
   export_only_approved:
     required: false
     default: "false"
@@ -64,6 +67,7 @@ runs:
         upload_translations: ${{ inputs.upload_translations }}
         download_translations: ${{ inputs.download_translations }}
         skip_untranslated_strings: ${{ inputs.skip_untranslated_strings }}
+        skip_untranslated_files: ${{ inputs.skip_untranslated_files }}
         export_only_approved: ${{ inputs.export_only_approved }}
         create_pull_request: ${{ inputs.create_pull_request }}
         localization_branch_name: ${{ inputs.localization_branch }}

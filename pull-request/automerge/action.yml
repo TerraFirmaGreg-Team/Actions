@@ -3,7 +3,16 @@ description: "Merge a PR now or enable GitHub auto-merge"
 
 inputs:
   github_token:
-    required: true
+    description: "used when app credentials are not provided"
+    required: false
+    default: ""
+  app_client_id:
+    description: "GitHub App client-id — generates a token via create-github-app-token"
+    required: false
+    default: ""
+  app_private_key:
+    required: false
+    default: ""
   pull_request:
     required: true
   repository:
@@ -25,10 +34,18 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: "Generate GitHub App token"
+      id: app
+      if: inputs.app_private_key != ''
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ inputs.app_client_id }}
+        private-key: ${{ inputs.app_private_key }}
+
     - name: "Merge"
       shell: bash
       env:
-        GH_TOKEN: ${{ inputs.github_token }}
+        GH_TOKEN: ${{ steps.app.outputs.token || inputs.github_token }}
         GH_REPO: ${{ inputs.repository || github.repository }}
         PR: ${{ inputs.pull_request }}
         METHOD: ${{ inputs.merge_method }}

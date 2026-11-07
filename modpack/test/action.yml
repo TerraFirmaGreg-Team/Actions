@@ -85,6 +85,41 @@ runs:
         echo "CLIENT_RESULT=fail" >> "$GITHUB_ENV"
         echo "SERVER_RESULT=skipped" >> "$GITHUB_ENV"
 
+    - name: "Download server pack"
+      if: ${{ inputs.server_artifact != '' }}
+      uses: actions/download-artifact@v8.0.2
+      with:
+        name: ${{ inputs.server_artifact }}
+        path: pack-server
+
+    - name: "Stage server"
+      if: ${{ inputs.server_artifact != '' }}
+      shell: bash
+      run: |
+        mkdir -p server
+        unzip -oq pack-server/*.zip -d server
+        ln -sfn server run
+        [ -f server/config/ftbbackups2.json ] \
+          && sed -i 's/"enabled" *: *true/"enabled": false/' server/config/ftbbackups2.json || true
+        [ -f server/config/ftbbackups.cfg ] \
+          && sed -i 's/B:enabled *= *true/B:enabled=false/' server/config/ftbbackups.cfg || true
+
+    - name: "Install spark"
+      if: ${{ inputs.spark == 'true' }}
+      shell: bash
+      run: |
+        LOADER="${{ inputs.loader_type }}"
+        [ "$LOADER" = "lexforge" ] && LOADER=forge
+        URL=$(curl -fsSL "https://api.modrinth.com/v2/project/spark/version?loaders=%5B%22${LOADER}%22%5D&game_versions=%5B%22${{ inputs.mc_version }}%22%5D" \
+          | jq -r '.[0].files[] | select(.primary == true) | .url' | head -1) || URL=""
+        if [ -z "$URL" ]; then
+          echo "::warning::spark jar download failed — profiling disabled"
+          exit 0
+        fi
+        for d in client server; do
+          [ -d "$d/mods" ] && curl -fsSL -o "$d/mods/spark-ci.jar" "$URL" && echo "$d: $(basename "$URL")" || true
+        done
+
     - name: "Setup Java"
       uses: actions/setup-java@v6.1.0
       with:
@@ -134,41 +169,6 @@ runs:
       if: success()
       shell: bash
       run: echo "CLIENT_RESULT=pass" >> "$GITHUB_ENV"
-
-    - name: "Download server pack"
-      if: ${{ inputs.server_artifact != '' }}
-      uses: actions/download-artifact@v8.0.2
-      with:
-        name: ${{ inputs.server_artifact }}
-        path: pack-server
-
-    - name: "Stage server"
-      if: ${{ inputs.server_artifact != '' }}
-      shell: bash
-      run: |
-        mkdir -p server
-        unzip -oq pack-server/*.zip -d server
-        ln -sfn server run
-        [ -f server/config/ftbbackups2.json ] \
-          && sed -i 's/"enabled" *: *true/"enabled": false/' server/config/ftbbackups2.json || true
-        [ -f server/config/ftbbackups.cfg ] \
-          && sed -i 's/B:enabled *= *true/B:enabled=false/' server/config/ftbbackups.cfg || true
-
-    - name: "Install spark"
-      if: ${{ inputs.spark == 'true' }}
-      shell: bash
-      run: |
-        LOADER="${{ inputs.loader_type }}"
-        [ "$LOADER" = "lexforge" ] && LOADER=forge
-        URL=$(curl -fsSL "https://api.modrinth.com/v2/project/spark/version?loaders=%5B%22${LOADER}%22%5D&game_versions=%5B%22${{ inputs.mc_version }}%22%5D" \
-          | jq -r '.[0].files[] | select(.primary == true) | .url' | head -1) || URL=""
-        if [ -z "$URL" ]; then
-          echo "::warning::spark jar download failed — profiling disabled"
-          exit 0
-        fi
-        for d in client server; do
-          [ -d "$d/mods" ] && curl -fsSL -o "$d/mods/spark-ci.jar" "$URL" && echo "$d: $(basename "$URL")" || true
-        done
 
     - name: "Pin server JVM"
       if: ${{ inputs.server_artifact != '' }}

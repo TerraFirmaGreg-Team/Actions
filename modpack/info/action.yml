@@ -148,10 +148,12 @@ runs:
         fi
 
         is_released=true
-        ver_re=$(printf '%s' "$CHANGELOG_VERSION" | sed 's/[][\.*^$]/\\&/g')
-        grep -m1 -E "^##.*${ver_re}" "${{ inputs.changelog_path }}" | grep -qi "unreleased" && is_released=false
+        if [ -n "$CHANGELOG_VERSION" ]; then
+          ver_re=$(printf '%s' "$CHANGELOG_VERSION" | sed 's/[][\.*^$+?(){}|]/\\&/g')
+          grep -m1 -E "^##.*${ver_re}" "${{ inputs.changelog_path }}" | grep -qi "unreleased" && is_released=false
+        fi
 
-        make_release=$([ "$TAG_EXISTS" = "false" ] && [ "$dev_env" = "false" ] && [ "$is_released" = "true" ] && echo true || echo false)
+        make_release=$([ "$TAG_EXISTS" = "false" ] && [ "$dev_env" = "false" ] && [ -n "$CHANGELOG_VERSION" ] && [ "$is_released" = "true" ] && echo true || echo false)
         make_pr=$([ "$TAG_EXISTS" = "false" ] && [ "$dev_env" = "true" ] && echo true || echo false)
 
         echo "project_name=$PROJECT_NAME" >> "$GITHUB_OUTPUT"

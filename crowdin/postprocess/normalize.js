@@ -27,7 +27,13 @@ function* strPaths(obj, p = []) {
 
 function setp(obj, p, val) {
   for (const x of p.slice(0, -1)) obj = obj[x];
-  obj[p[p.length - 1]] = val;
+  // plain assignment to "__proto__"/"constructor" hits setters, not own props
+  Object.defineProperty(obj, p[p.length - 1], {
+    value: val,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  });
 }
 
 function indentOf(text) {

@@ -61,6 +61,12 @@ runs:
             github.rest.repos.listReleases,
             { owner, repo: name, per_page: 100 },
           );
+          if (!releases.length) {
+            core.setFailed(
+              `0 releases for ${owner}/${name} — refusing to wipe ${dir}`,
+            );
+            return;
+          }
           const fileName = (tag) =>
             tag.replace(/^v/i, '').replace(/[^\w.\-]/g, '-');
           const STRIP_HEADING = /^#{1,6}\s*(what'?s changed|new contributors)\s*$/i;

@@ -155,7 +155,7 @@ runs:
 
         add_java "${{ steps.project_info.outputs.java_version }}"
 
-        join_uniq() { printf '%s\n' $1 | awk 'NF && !seen[$0]++ { printf sep $0; sep=", " }'; }
+        join_uniq() { printf '%s' "$1" | awk 'NF && !seen[$0]++ { printf sep $0; sep=", " }'; }
 
         echo "platforms=$platforms" >> "$GITHUB_OUTPUT"
         echo "game_versions=$(join_uniq "$mcs")" >> "$GITHUB_OUTPUT"

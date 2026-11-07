@@ -70,12 +70,20 @@ inputs:
 
 outputs:
   result:
-    description: "clienttest/servertest outcome (mode=client|server)"
-    value: ${{ steps.clienttest.outcome || steps.servertest.outcome || 'none' }}
+    description: "Test outcome — failure > success > first outcome > none"
+    value: ${{ (steps.clienttest.outcome == 'failure' || steps.servertest.outcome == 'failure') && 'failure' || (steps.clienttest.outcome == 'success' || steps.servertest.outcome == 'success') && 'success' || steps.clienttest.outcome || steps.servertest.outcome || 'none' }}
 
 runs:
   using: "composite"
   steps:
+    - name: "Validate inputs"
+      shell: bash
+      run: |
+        case "${{ inputs.mode }}" in
+          both|client|server|report) ;;
+          *) echo "::error::mode '${{ inputs.mode }}' must be both|client|server|report"; exit 1 ;;
+        esac
+
     - name: "Download client pack"
       if: ${{ inputs.mode == 'both' || inputs.mode == 'client' }}
       uses: actions/download-artifact@v8.0.2
@@ -92,12 +100,8 @@ runs:
         mkdir -p client-unzip client
         unzip -oq pack-client/*.zip -d client-unzip
         cp -rf client-unzip/.minecraft/. client/
-        [ -f client/config/ftbbackups2.json ] \
-          && sed -i 's/"enabled" *: *true/"enabled": false/' client/config/ftbbackups2.json || true
-        [ -f client/config/ftbbackups.cfg ] \
-          && sed -i 's/B:enabled *= *true/B:enabled=false/' client/config/ftbbackups.cfg || true
-        # Forge 47.x early display window can't init under headless CI and
-        # spams a y/n console prompt — disable it via the documented fml.toml key.
+        bash "${{ github.action_path }}/../scripts/disable-ftbbackups.sh" client
+        # Forge 47 early window spams a y/n prompt under headless CI.
         mkdir -p client/config
         if grep -q 'earlyWindowControl' client/config/fml.toml 2>/dev/null; then
           sed -i 's/^ *earlyWindowControl *= *.*/earlyWindowControl = false/' client/config/fml.toml
@@ -120,10 +124,7 @@ runs:
       run: |
         mkdir -p server
         unzip -oq pack-server/*.zip -d server
-        [ -f server/config/ftbbackups2.json ] \
-          && sed -i 's/"enabled" *: *true/"enabled": false/' server/config/ftbbackups2.json || true
-        [ -f server/config/ftbbackups.cfg ] \
-          && sed -i 's/B:enabled *= *true/B:enabled=false/' server/config/ftbbackups.cfg || true
+        bash "${{ github.action_path }}/../scripts/disable-ftbbackups.sh" server
 
     - name: "Install spark"
       if: ${{ inputs.spark == 'true' && inputs.mode != 'report' }}
@@ -132,17 +133,27 @@ runs:
         LOADER="${{ inputs.loader_type }}"
         [ "$LOADER" = "lexforge" ] && LOADER=forge
         URL=$(curl -fsSL "https://api.modrinth.com/v2/project/spark/version?loaders=%5B%22${LOADER}%22%5D&game_versions=%5B%22${{ inputs.mc_version }}%22%5D" \
-          | jq -r '.[0].files[] | select(.primary == true) | .url' | head -1) || URL=""
-        if [ -z "$URL" ]; then
+          | jq -r 'first(.[0].files[] | select(.primary == true) | .url) // empty') || URL=""
+        if [ -n "$URL" ]; then
+          for d in client server; do
+            [ -d "$d/mods" ] || continue
+            if compgen -G "$d/mods/spark*.jar" > /dev/null; then
+              echo "$d: spark already shipped by pack — skip"
+            else
+              # partial download must not trip the spark*.jar glob later
+              curl -fsSL -o "$d/mods/spark-ci.jar" "$URL" && echo "$d: $(basename "$URL")" \
+                || { rm -f "$d/mods/spark-ci.jar"; true; }
+            fi
+          done
+        else
           echo "::warning::spark jar download failed — spark stats disabled"
-          exit 0
         fi
+        # SPARK_<SIDE>=1 only when a spark jar is present — without it the
+        # test-file REGEX waits 240s for output that never comes.
         for d in client server; do
-          [ -d "$d/mods" ] && curl -fsSL -o "$d/mods/spark-ci.jar" "$URL" && echo "$d: $(basename "$URL")" || true
+          compgen -G "$d/mods/spark*.jar" > /dev/null && echo "SPARK_${d^^}=1" >> "$GITHUB_ENV" || true
         done
-        # kubejs script runs spark commands — only after a successful download,
-        # otherwise unknown-command errors would pollute the kubejs log.
-        [ -d client/kubejs/server_scripts ] \
+        compgen -G "client/mods/spark*.jar" > /dev/null && [ -d client/kubejs/server_scripts ] \
           && cp "${{ github.action_path }}/data/ci-spark.js" client/kubejs/server_scripts/ || true
 
     - name: "Setup Java 25 (hmc build)"
@@ -164,8 +175,7 @@ runs:
       if: ${{ inputs.mode != 'report' && steps.hmc-cache.outputs.cache-hit != 'true' }}
       shell: bash
       run: |
-        # Releases <=3.0.0-RC8 kill any WAIT test step at its own duration —
-        # the fix (getStepTimeout) exists only on master, so we build it.
+        # hmc <=3.0.0-RC8 kills WAIT steps at their own duration; fix is master-only.
         git init -q hmc-src
         cd hmc-src
         git remote add origin https://github.com/headlesshq/headlessmc
@@ -194,31 +204,13 @@ runs:
     - name: "Pin game JVM"
       if: ${{ inputs.mode == 'both' || inputs.mode == 'client' }}
       shell: bash
+      env:
+        LOADER_TYPE: ${{ inputs.loader_type }}
+        MC_VERSION: ${{ inputs.mc_version }}
+        JAVA_VERSION: ${{ inputs.java_version }}
       run: |
         ln -sfn client run
-        mkdir -p HeadlessMC/profiles
-        cat <<EOF >> HeadlessMC/config.properties
-        hmc.java.download=false
-        hmc.java.versions=$JAVA_HOME/bin/java
-        EOF
-        # HMC 3 has no --java flag: launch resolves a saved profile whose
-        # "version" matches <loader> <mc>; its javaVersion wins over version.json.
-        cat <<EOF > "HeadlessMC/profiles/${{ inputs.loader_type }}-${{ inputs.mc_version }}.json"
-        {
-          "name": "${{ inputs.loader_type }}-${{ inputs.mc_version }}",
-          "version": {"platform": "${{ inputs.loader_type }}", "version": "${{ inputs.mc_version }}"},
-          "currentVersion": {"platform": "${{ inputs.loader_type }}", "version": "${{ inputs.mc_version }}"},
-          "path": "$PWD/run",
-          "options": {"resolution": null, "quickPlayPath": null, "join": null, "demo": false},
-          "patchers": [],
-          "systemProperties": {},
-          "vmArgs": [],
-          "javaVersion": ${{ inputs.java_version }},
-          "eulaStatus": "UNKNOWN",
-          "hasDefaultClientJvmArgs": false,
-          "hmcVersion": 0
-        }
-        EOF
+        bash "${{ github.action_path }}/../scripts/pin-hmc-profile.sh"
 
     - name: "Client test"
       id: clienttest
@@ -244,9 +236,8 @@ runs:
       if: ${{ always() && inputs.server_artifact != '' && (inputs.mode == 'both' || inputs.mode == 'server') }}
       shell: bash
       run: |
-        # `server add` pins profile javaVersion from the vanilla version.json;
-        # a pre-seeded patched file makes the server launch use our JVM.
-        # Requires cache-mc: 'false' below — a cache restore would clobber this file.
+        # version.json javaVersion pins the server JVM (hmc has no --java flag);
+        # cache-mc must stay 'false' — a restore would clobber the seeded file.
         ln -sfn server run
         VJ="$HOME/.minecraft/versions/${{ inputs.mc_version }}/${{ inputs.mc_version }}.json"
         mkdir -p "$(dirname "$VJ")"
@@ -261,13 +252,13 @@ runs:
       if: ${{ always() && inputs.server_artifact != '' && (inputs.mode == 'both' || inputs.mode == 'server') }}
       uses: headlesshq/mc-server-test@2.0.0
       with:
-        mc: "${{ inputs.mc_version }} ${{ inputs.loader_version }}"
+        mc: ${{ inputs.loader_version != '' && format('{0} {1}', inputs.mc_version, inputs.loader_version) || inputs.mc_version }}
         modloader: ${{ inputs.loader_type }}
         java: ${{ inputs.java_version }}
         cache-mc: 'false'
         download-hmc: 'false'
         headlessmc-command: ${{ inputs.server_headlessmc_command }}
-        test-file: ${{ inputs.spark == 'true' && format('{0}/data/server-test.json', github.action_path) || 'none' }}
+        test-file: ${{ env.SPARK_SERVER == '1' && format('{0}/data/server-test.json', github.action_path) || 'none' }}
 
     - name: "Mark server pass"
       if: ${{ always() && steps.servertest.outcome == 'success' }}
@@ -301,8 +292,7 @@ runs:
       if: ${{ always() && (inputs.mode == 'both' || inputs.mode == 'report') }}
       shell: bash
       run: |
-        # Findings-only: log errors are shown to reviewers, never fail the run.
-        # Pass/fail comes solely from the test step outcomes.
+        # Findings only — pass/fail comes from the test step outcomes.
         bad=0
         : > analysis.md
         for dir in client server; do
@@ -348,8 +338,7 @@ runs:
         for dir in client server; do
           mkdir -p spark/$dir
           find $dir spark/$dir -name '*.spark' -exec cp -n {} spark/$dir/ \; 2>/dev/null || true
-          # In client|server mode the artifact upload ships spark/ to the report job —
-          # bytebin upload + env links belong to the report phase only.
+          # client|server jobs ship spark/ via artifacts; upload + links are report-phase only.
           case "${{ inputs.mode }}" in client|server) continue;; esac
           u=$(grep -oh 'https://spark\.lucko\.me/[A-Za-z0-9_-]\{4,\}' $dir/logs/latest.log 2>/dev/null | tail -1 || true)
           latest=$(ls -t spark/$dir/*.spark 2>/dev/null | head -1 || true)
@@ -538,8 +527,7 @@ runs:
       if: ${{ always() && inputs.mode == 'report' }}
       shell: bash
       run: |
-        # Single gate for callers: report job fails iff a side actually failed
-        # (or the server test never ran despite a serverpack being provided).
+        # fails iff a side failed or a supplied serverpack never ran.
         fail=0
         [ "$CLIENT_RESULT" = "fail" ] && fail=1
         [ "$SERVER_RESULT" = "fail" ] && fail=1
@@ -556,7 +544,7 @@ runs:
         if [ -z "$n" ]; then
           # push / workflow_dispatch: find the open PR whose head is this sha
           n=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
-                --jq '.[0].number' 2>/dev/null || true)
+                --jq '[.[] | select(.state == "open")][0].number // empty' 2>/dev/null || true)
         fi
         [ -n "$n" ] && echo "PR_NUMBER=$n" >> "$GITHUB_ENV" \
           || echo "::warning::no open PR for ${{ github.sha }} — PR comment skipped"

@@ -163,10 +163,10 @@ runs:
       run: |
         mv -vf .pakku/multimc-overrides ./build/multimc
 
-        if [ "$PRUNE" = "true" ] && [ -f ./pakku.json ]; then
-          for mod in $(jq -r '(.projects // {}) | to_entries[] | select(.value.export == false) | .key' ./pakku.json); do
-            find ./mods -name "${mod}*.jar" -type f -delete 2>/dev/null
-          done
+        # exact names from pakku-lock — a key-prefix glob would hit unrelated jars (ae2 -> ae2stuff*)
+        if [ "$PRUNE" = "true" ] && [ -f ./pakku-lock.json ]; then
+          jq -r '.projects[]? | select(.export == false) | .files[]?.file_name' ./pakku-lock.json \
+            | while IFS= read -r jar; do rm -fv "./mods/$jar"; done
         fi
 
         cp -rf ./build/.cache/curseforge/overrides ./build/multimc/.minecraft

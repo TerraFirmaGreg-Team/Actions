@@ -19,6 +19,7 @@ runs:
   using: "composite"
   steps:
     - name: "Checkout translations branch"
+      id: co
       uses: actions/checkout@v7.0.1
       with:
         ref: ${{ inputs.localization_branch }}
@@ -26,7 +27,7 @@ runs:
       continue-on-error: true
 
     - name: "Normalize translations"
-      if: ${{ inputs.patchouli_config != '' }}
+      if: ${{ steps.co.outcome == 'success' && inputs.patchouli_config != '' }}
       shell: bash
       run: |
         if [ -f "${{ inputs.patchouli_config }}" ]; then
@@ -34,12 +35,14 @@ runs:
         fi
 
     - name: "Remove empty translation files"
+      if: ${{ steps.co.outcome == 'success' }}
       shell: bash
       run: |
         find "${{ inputs.translations_root }}" -name "*.json" -type f \
           -exec sh -c 'jq -e "keys | length == 0" "$1" >/dev/null 2>&1 && rm "$1"' _ {} \;
 
     - name: "Commit changes"
+      if: ${{ steps.co.outcome == 'success' }}
       uses: stefanzweifel/git-auto-commit-action@v7.2.1
       with:
         commit_message: ${{ inputs.commit_message }}

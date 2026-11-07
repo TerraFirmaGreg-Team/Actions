@@ -1,6 +1,5 @@
-# Shared report helpers for modpack/test.
-# Sourced by the "Test summary" and "Build failure report" run blocks.
-# NOTE: ${{ }} expressions do NOT interpolate here — everything via env vars.
+# Report helpers for modpack/test — sourced by summary/report steps.
+# NOTE: no ${{ }} interpolation here; everything arrives via env vars.
 
 ERR_RE='InjectionError|Mixin apply failed|Caused by:|(/|\[)(ERROR|FATAL)'
 # Ubiquitous forge/mod noise that lands at ERROR level but kills nothing.
@@ -38,7 +37,7 @@ spark_ok() { # link must carry a profile key — bare 'https://spark.lucko.me/' 
   [ -n "${1:-}" ] && [ "${1%/}" != "https://spark.lucko.me" ]
 }
 
-spark_md() { # "**Spark flame graphs**: [client](u) · [server](u)" when viewer links exist
+spark_md() {
   local out="" c=${SPARK_CLIENT_LINK:-} s=${SPARK_SERVER_LINK:-}
   spark_ok "$c" && out="[client]($c)"
   spark_ok "$s" && out+="${out:+ · }[server]($s)"

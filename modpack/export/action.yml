@@ -47,7 +47,7 @@ inputs:
     default: "export"
   java_version:
     required: false
-    default: "25"
+    default: "17"
   xvfb:
     required: false
     default: "true"
@@ -139,10 +139,7 @@ runs:
         mkdir -p pack-unzip run
         unzip -oq pack/*.zip -d pack-unzip
         cp -rf pack-unzip/.minecraft/. run/
-        [ -f run/config/ftbbackups2.json ] \
-          && sed -i 's/"enabled" *: *true/"enabled": false/' run/config/ftbbackups2.json || true
-        [ -f run/config/ftbbackups.cfg ] \
-          && sed -i 's/B:enabled *= *true/B:enabled=false/' run/config/ftbbackups.cfg || true
+        bash "${{ github.action_path }}/../scripts/disable-ftbbackups.sh" run
 
     - name: "Setup Java"
       uses: actions/setup-java@v6.1.0
@@ -152,30 +149,11 @@ runs:
 
     - name: "Pin game JVM"
       shell: bash
-      run: |
-        mkdir -p HeadlessMC/profiles
-        cat <<EOF >> HeadlessMC/config.properties
-        hmc.java.download=false
-        hmc.java.versions=$JAVA_HOME/bin/java
-        EOF
-        # HMC 3 has no --java flag: launch resolves a saved profile whose
-        # "version" matches <loader> <mc>; its javaVersion wins over version.json.
-        cat <<EOF > "HeadlessMC/profiles/${{ inputs.loader_type }}-${{ inputs.mc_version }}.json"
-        {
-          "name": "${{ inputs.loader_type }}-${{ inputs.mc_version }}",
-          "version": {"platform": "${{ inputs.loader_type }}", "version": "${{ inputs.mc_version }}"},
-          "currentVersion": {"platform": "${{ inputs.loader_type }}", "version": "${{ inputs.mc_version }}"},
-          "path": "$PWD/run",
-          "options": {"resolution": null, "quickPlayPath": null, "join": null, "demo": false},
-          "patchers": [],
-          "systemProperties": {},
-          "vmArgs": [],
-          "javaVersion": ${{ inputs.java_version }},
-          "eulaStatus": "UNKNOWN",
-          "hasDefaultClientJvmArgs": false,
-          "hmcVersion": 0
-        }
-        EOF
+      env:
+        LOADER_TYPE: ${{ inputs.loader_type }}
+        MC_VERSION: ${{ inputs.mc_version }}
+        JAVA_VERSION: ${{ inputs.java_version }}
+      run: bash "${{ github.action_path }}/../scripts/pin-hmc-profile.sh"
 
     - name: "Download game-exporter"
       shell: bash

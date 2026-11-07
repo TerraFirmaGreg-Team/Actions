@@ -152,7 +152,7 @@ runs:
           | jq -r --arg v "${{ inputs.mc_version }}" '.versions[] | select(.id == $v) | .url')"
         [ -n "$URL" ] || { echo "::error::No ${{ inputs.mc_version }} in Mojang version manifest"; exit 1; }
         curl -fsSL "$URL" | jq '.javaVersion.majorVersion = ${{ inputs.java_version }}' > "$VJ"
-        grep -o '"javaVersion":[^}]*}' "$VJ"
+        jq '.javaVersion' "$VJ"
 
     - name: "Server test"
       if: ${{ inputs.server_artifact != '' }}
@@ -179,23 +179,32 @@ runs:
       shell: bash
       run: |
         bad=0
+        : > analysis.md
         for dir in client server; do
           [ -d "$dir/logs" ] || continue
-          kerr=$(grep -rsh 'ERROR' $dir/logs/kubejs/*.log 2>/dev/null; grep -h "Error in '" $dir/logs/latest.log 2>/dev/null | head -3)
+          kerr=$(grep -rsh 'ERROR' $dir/logs/kubejs/*.log 2>/dev/null; grep -h "Error in '" $dir/logs/latest.log 2>/dev/null | head -3 || true)
           if [ -n "$kerr" ]; then
             echo "::error title=KubeJS errors ($dir)::$(echo "$kerr" | head -5 | tr '\n' ' ')"
+            echo "- **KubeJS errors ($dir)**: $(echo "$kerr" | head -5 | tr '\n' ' ')" >> analysis.md
             echo "${dir^^}_RESULT=fail" >> "$GITHUB_ENV"
             bad=1
           fi
-          if grep -sq 'Mixin apply failed' $dir/logs/latest.log; then
-            echo "::error title=Mixin failure ($dir)::$(grep -m3 'Mixin apply failed' $dir/logs/latest.log | tr '\n' ' ')"
+          if grep -sqE 'Mixin apply failed|InjectionError' $dir/logs/latest.log; then
+            echo "::error title=Mixin failure ($dir)::$(grep -m3 -E 'Mixin apply failed|InjectionError' $dir/logs/latest.log | tr '\n' ' ')"
+            echo "- **Mixin failure ($dir)**: $(grep -m3 -E 'Mixin apply failed|InjectionError' $dir/logs/latest.log | tr '\n' ' ')" >> analysis.md
             echo "${dir^^}_RESULT=fail" >> "$GITHUB_ENV"
             bad=1
           fi
           rec=$(grep -c 'Parsing error loading recipe' $dir/logs/latest.log 2>/dev/null || true)
-          if [ "${rec:-0}" -gt 0 ]; then echo "::warning title=Recipe parse errors ($dir)::$rec in latest.log"; fi
+          if [ "${rec:-0}" -gt 0 ]; then
+            echo "::warning title=Recipe parse errors ($dir)::$rec in latest.log"
+            echo "- **Recipe parse errors ($dir)**: $rec in latest.log" >> analysis.md
+          fi
           dp=$(grep -cE "Couldn't load data tag|Couldn't parse data file" $dir/logs/latest.log 2>/dev/null || true)
-          if [ "${dp:-0}" -gt 0 ]; then echo "::warning title=Datapack issues ($dir)::$dp in latest.log"; fi
+          if [ "${dp:-0}" -gt 0 ]; then
+            echo "::warning title=Datapack issues ($dir)::$dp in latest.log"
+            echo "- **Datapack issues ($dir)**: $dp in latest.log" >> analysis.md
+          fi
         done
         [ "$bad" -eq 0 ]
 
@@ -228,25 +237,40 @@ runs:
       if: failure()
       shell: bash
       run: |
-        dir=client
-        if [ "$SERVER_RESULT" = "fail" ]; then dir=server; fi
+        mkdir -p fail-logs
         {
           echo '### Runtime test failed'
-          echo '```'
-          crash=$(ls -t $dir/crash-reports/*.txt 2>/dev/null | head -1 || true)
-          if [ -n "$crash" ]; then
-            head -80 "$crash"
-          elif [ -f $dir/logs/latest.log ]; then
-            tail -80 $dir/logs/latest.log
-          else
-            echo 'No crash report or latest.log. See attached logs.'
+          found=0
+          if [ -s analysis.md ]; then
+            cat analysis.md
+            echo ''
+            found=1
           fi
-          echo '```'
+          for dir in client server; do
+            crash=$(ls -t $dir/crash-reports/*.txt 2>/dev/null | head -1 || true)
+            if [ -n "$crash" ]; then
+              echo "#### $dir — crash report"
+              echo '```'
+              head -80 "$crash"
+              echo '```'
+              found=1
+            elif [ -f $dir/logs/latest.log ]; then
+              echo "#### $dir — latest.log (tail)"
+              echo '```'
+              tail -80 $dir/logs/latest.log
+              echo '```'
+              found=1
+            fi
+            cp -r $dir/logs fail-logs/logs-$dir 2>/dev/null || true
+            cp -r $dir/crash-reports fail-logs/crash-reports-$dir 2>/dev/null || true
+          done
+          if [ "$found" -eq 0 ]; then
+            echo '```'
+            echo 'No crash report or latest.log. See workflow log and attached logs.'
+            echo '```'
+          fi
         } > pr-comment.md
-        mkdir -p fail-logs
         cp pr-comment.md fail-logs/
-        cp -r $dir/logs fail-logs/logs 2>/dev/null || true
-        cp -r $dir/crash-reports fail-logs/crash-reports 2>/dev/null || true
         cat pr-comment.md >> "$GITHUB_STEP_SUMMARY"
 
     - name: "Comment PR on failure"

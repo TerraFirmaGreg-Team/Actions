@@ -54,8 +54,12 @@ runs:
         merge() { gh pr merge "--$METHOD" $DEL "$PR"; }
 
         if [ "${{ inputs.auto_merge }}" = "true" ]; then
-          [ "$(gh pr view "$PR" --json autoMergeRequest --jq '.autoMergeRequest != null')" = "false" ] \
-            && gh pr merge --auto "--$METHOD" $DEL "$PR"
+          enabled="$(gh pr view "$PR" --json autoMergeRequest --jq '.autoMergeRequest != null')"
+          if [ "$enabled" = "true" ]; then
+            echo "Auto-merge is already enabled"
+          else
+            gh pr merge --auto "--$METHOD" $DEL "$PR"
+          fi
         else
           # GitHub may still compute mergeable_state right after PR creation
           for i in 1 2 3 4; do

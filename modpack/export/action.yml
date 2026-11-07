@@ -47,7 +47,7 @@ inputs:
     default: "export"
   java_version:
     required: false
-    default: "17"
+    default: "21"
   xvfb:
     required: false
     default: "true"

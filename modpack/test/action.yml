@@ -319,6 +319,33 @@ runs:
           echo "| Spark (server) | $(spark_cell "$SPARK_SERVER_FILES" "$SPARK_SERVER" "$SERVER_LOGS_URL") |"
         } >> "$GITHUB_STEP_SUMMARY"
 
+    - name: "Upload logs to mclo.gs"
+      if: failure()
+      shell: bash
+      run: |
+        upload() { # $1=file $2=env name
+          local url
+          url=$(tail -24000 "$1" | curl -fsS --max-time 30 -X POST https://api.mclo.gs/1/log \
+            --data-urlencode content@- 2>/dev/null | jq -r '.url // empty' 2>/dev/null || true)
+          if [ -n "$url" ]; then
+            echo "$2=$url" >> "$GITHUB_ENV"
+            echo "$2 -> $url"
+          else
+            echo "::warning::mclo.gs upload failed: $1"
+          fi
+          return 0
+        }
+        for dir in client server; do
+          [ -d "$dir/logs" ] || continue
+          [ -s "$dir/logs/latest.log" ]         && upload "$dir/logs/latest.log"         "MCLOGS_${dir^^}_LATEST" || true
+          [ -s "$dir/logs/kubejs/server.log" ]  && upload "$dir/logs/kubejs/server.log"  "MCLOGS_${dir^^}_KUBEJS" || true
+          [ -s "$dir/logs/stderr_stream.log" ]  && upload "$dir/logs/stderr_stream.log"  "MCLOGS_${dir^^}_STDERR" || true
+          crash=$(ls -t $dir/crash-reports/*.txt 2>/dev/null | head -1 || true)
+          if [ -n "$crash" ] && [ -s "$crash" ]; then
+            upload "$crash" "MCLOGS_${dir^^}_CRASH" || true
+          fi
+        done
+
     - name: "Build failure report"
       if: failure()
       shell: bash
@@ -337,54 +364,84 @@ runs:
           return 0
         }
         logs_md() {
-          local out=""
-          [ -n "$1" ] && out="[client]($1)"
-          [ -n "$2" ] && out+="${out:+ · }[server]($2)"
+          local out="" u
+          u=${MCLOGS_CLIENT_LATEST:-$CLIENT_LOGS_URL}
+          [ -n "$u" ] && out="[client]($u)"
+          u=${MCLOGS_SERVER_LATEST:-$SERVER_LOGS_URL}
+          [ -n "$u" ] && out+="${out:+ · }[server]($u)"
           [ -n "$out" ] && echo "**Logs**: $out"
           return 0
         }
-        log_details() { # $1=dir $2=artifact url
-          for spec in "logs/latest.log|latest.log|80" "logs/kubejs/server.log|kubejs/server.log|40" "logs/stderr_stream.log|stderr_stream.log|30"; do
-            f="${spec%%|*}"; rest="${spec#*|}"; name="${rest%%|*}"; n="${rest##*|}"
-            [ -f "$1/$f" ] || continue
-            echo "<details><summary><b>$1 — $name (tail $n)</b> · <a href=\"$2\">download $1 logs</a></summary>"
-            echo ''
-            echo '```text'
-            tail -$n "$1/$f"
-            echo '```'
-            echo ''
-            echo '</details>'
-            echo ''
-          done
-          local crash
-          crash=$(ls -t $1/crash-reports/*.txt 2>/dev/null | head -1 || true)
-          if [ -n "$crash" ]; then
-            echo "<details><summary><b>$1 — $(basename "$crash")</b> · <a href=\"$2\">download $1 logs</a></summary>"
-            echo ''
-            echo '```text'
-            head -60 "$crash"
-            echo '```'
-            echo ''
-            echo '</details>'
-            echo ''
+        log_excerpt() { # $1=file $2=max → prints "LABEL" line then excerpt lines
+          local a s
+          a=$(grep -nF -- '---- Minecraft Crash Report ----' "$1" | tail -1 | cut -d: -f1 || true)
+          if [ -n "$a" ]; then
+            echo 'crash report'
+            tail -n "+$a" "$1" \
+              | sed '/Mod List:/,/Crash Report UUID/{/Crash Report UUID/!d}' \
+              | head -"$2"
+            return 0
           fi
-          if [ -f "$1/logs/latest.log" ]; then
-            local block
-            block=$(awk '/Generating server health report/{n=NR} n&&NR>=n' "$1/logs/latest.log" | head -40 | sed -E 's/^\[[0-9:.]+\] (\[[^]]*\] ?)+: //')
-            if [ -n "$block" ]; then
-              echo "<details><summary><b>$1 — spark stats</b></summary>"
-              echo ''
-              echo '```text'
-              echo "$block"
-              echo '```'
-              echo ''
-              echo "Full profile: \`*.spark\` file in the $1 logs artifact (upload at spark.lucko.me)"
-              echo ''
-              echo '</details>'
-              echo ''
+          a=$(grep -nE 'InjectionError|Mixin apply failed|Caused by:|/(ERROR|FATAL)' "$1" | tail -1 | cut -d: -f1 || true)
+          if [ -n "$a" ]; then
+            echo 'error context'
+            s=$(( a > 10 ? a - 10 : 1 ))
+            sed -n "${s},$(( a + $2 ))p" "$1"
+            return 0
+          fi
+          echo "tail $2"
+          tail -"$2" "$1"
+        }
+        file_details() { # $1=dir $2=relpath $3=name $4=mclo env suffix $5=max lines
+          [ -s "$1/$2" ] || return 0
+          local out body label link var
+          out=$(log_excerpt "$1/$2" "$5")
+          label=${out%%$'\n'*}
+          body=${out#*$'\n'}
+          var="MCLOGS_${1^^}_$4"; eval "link=\${$var:-}"
+          echo "<details><summary>$3 — $label${link:+ · <a href=\"$link\">full log</a>}</summary>"
+          echo ''
+          echo '```text'
+          echo "$body"
+          echo '```'
+          echo ''
+          echo '</details>'
+          echo ''
+        }
+        side_details() { # $1=dir $2=artifact url
+          local inner
+          inner=$(
+            file_details "$1" logs/latest.log latest.log LATEST 140
+            file_details "$1" logs/kubejs/server.log kubejs/server.log KUBEJS 40
+            file_details "$1" logs/stderr_stream.log stderr_stream.log STDERR 30
+            local crash
+            crash=$(ls -t $1/crash-reports/*.txt 2>/dev/null | head -1 || true)
+            if [ -n "$crash" ] && [ -s "$crash" ]; then
+              file_details "$1" "${crash#$1/}" "$(basename "$crash")" CRASH 140
             fi
-          fi
-          return 0
+            if [ -f "$1/logs/latest.log" ]; then
+              local block
+              block=$(awk '/Generating server health report/{n=NR} n&&NR>=n' "$1/logs/latest.log" | head -40 | sed -E 's/^\[[0-9:.]+\] (\[[^]]*\] ?)+: //')
+              if [ -n "$block" ]; then
+                echo '<details><summary>spark stats</summary>'
+                echo ''
+                echo '```text'
+                echo "$block"
+                echo '```'
+                echo ''
+                echo "Full profile: \`*.spark\` file in the $1 logs artifact (upload at spark.lucko.me)"
+                echo ''
+                echo '</details>'
+                echo ''
+              fi
+            fi
+          ) || true
+          [ -z "$inner" ] && return 0
+          echo "<details><summary><b>$1</b>${2:+ · <a href=\"$2\">download $1 logs</a>}</summary>"
+          echo ''
+          echo "$inner"
+          echo '</details>'
+          echo ''
         }
         {
           echo '### Runtime test failed'
@@ -412,8 +469,8 @@ runs:
             echo ''
             found=1
           fi
-          log_details client "$CLIENT_LOGS_URL"
-          log_details server "$SERVER_LOGS_URL"
+          side_details client "$CLIENT_LOGS_URL"
+          side_details server "$SERVER_LOGS_URL"
           if [ "$found" -eq 0 ] && ! compgen -G 'client/logs/*' >/dev/null && ! compgen -G 'server/logs/*' >/dev/null; then
             echo 'No logs found — see workflow log.'
           fi

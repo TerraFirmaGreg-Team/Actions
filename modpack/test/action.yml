@@ -46,6 +46,10 @@ inputs:
   artifact_prefix:
     required: false
     default: "modpack-test"
+  spark:
+    description: "Inject spark mod and collect profiler/health links for client+server"
+    required: false
+    default: "true"
 
 runs:
   using: "composite"
@@ -67,6 +71,9 @@ runs:
           && sed -i 's/"enabled" *: *true/"enabled": false/' client/config/ftbbackups2.json || true
         [ -f client/config/ftbbackups.cfg ] \
           && sed -i 's/B:enabled *= *true/B:enabled=false/' client/config/ftbbackups.cfg || true
+        if [ "${{ inputs.spark }}" = "true" ] && [ -d client/kubejs/server_scripts ]; then
+          cp "${{ github.action_path }}/data/ci-spark.js" client/kubejs/server_scripts/
+        fi
         echo "CLIENT_RESULT=fail" >> "$GITHUB_ENV"
         echo "SERVER_RESULT=skipped" >> "$GITHUB_ENV"
 
@@ -139,6 +146,22 @@ runs:
         [ -f server/config/ftbbackups.cfg ] \
           && sed -i 's/B:enabled *= *true/B:enabled=false/' server/config/ftbbackups.cfg || true
 
+    - name: "Install spark"
+      if: ${{ inputs.spark == 'true' }}
+      shell: bash
+      run: |
+        LOADER="${{ inputs.loader_type }}"
+        [ "$LOADER" = "lexforge" ] && LOADER=forge
+        URL=$(curl -fsSL "https://api.modrinth.com/v2/project/spark/version?loaders=%5B%22${LOADER}%22%5D&game_versions=%5B%22${{ inputs.mc_version }}%22%5D" \
+          | jq -r '.[0].files[] | select(.primary == true) | .url' | head -1) || URL=""
+        if [ -z "$URL" ]; then
+          echo "::warning::spark jar download failed — profiling disabled"
+          exit 0
+        fi
+        for d in client server; do
+          [ -d "$d/mods" ] && curl -fsSL -o "$d/mods/spark-ci.jar" "$URL" && echo "$d: $(basename "$URL")" || true
+        done
+
     - name: "Pin server JVM"
       if: ${{ inputs.server_artifact != '' }}
       shell: bash
@@ -163,6 +186,7 @@ runs:
         java: ${{ inputs.java_version }}
         cache-mc: 'false'
         headlessmc-command: ${{ inputs.server_headlessmc_command }}
+        test-file: ${{ inputs.spark == 'true' && format('{0}/data/server-test.json', github.action_path) || 'none' }}
 
     - name: "Mark server pass"
       if: ${{ success() && inputs.server_artifact != '' }}
@@ -218,82 +242,174 @@ runs:
         done
         [ "$bad" -eq 0 ]
 
-    - name: "Test summary"
+    - name: "Collect spark reports"
       if: always()
       shell: bash
       run: |
+        for dir in client server; do
+          urls=$(grep -oh 'https://spark\.lucko\.me/[A-Za-z0-9_-]*' $dir/logs/latest.log 2>/dev/null | sort -u | tr '\n' ' ' | sed 's/ $//')
+          echo "SPARK_${dir^^}=${urls:-none}" >> "$GITHUB_ENV"
+          mkdir -p spark/$dir
+          files=$(find $dir -name '*.spark' -exec basename {} \; 2>/dev/null | sort -u | tr '\n' ' ' | sed 's/ $//')
+          find $dir -name '*.spark' -exec cp -n {} spark/$dir/ \; 2>/dev/null || true
+          echo "SPARK_${dir^^}_FILES=${files:-none}" >> "$GITHUB_ENV"
+          [ -n "$files$urls" ] && echo "$dir: files=[$files] links=[$urls]"
+        done
+
+    - name: "Upload client logs"
+      if: ${{ always() && inputs.artifact_logs == 'true' }}
+      id: up-client
+      uses: actions/upload-artifact@v7.0.2
+      with:
+        name: ${{ inputs.artifact_prefix }}-logs-client
+        path: |
+          client/logs/
+          client/crash-reports/
+          spark/client/
+          analysis.md
+        if-no-files-found: warn
+
+    - name: "Upload server logs"
+      if: ${{ always() && inputs.artifact_logs == 'true' && inputs.server_artifact != '' }}
+      id: up-server
+      uses: actions/upload-artifact@v7.0.2
+      with:
+        name: ${{ inputs.artifact_prefix }}-logs-server
+        path: |
+          server/logs/
+          server/crash-reports/
+          spark/server/
+          analysis.md
+        if-no-files-found: warn
+
+    - name: "Test summary"
+      if: always()
+      shell: bash
+      env:
+        CLIENT_LOGS_URL: ${{ steps.up-client.outputs.artifact-url }}
+        SERVER_LOGS_URL: ${{ steps.up-server.outputs.artifact-url }}
+      run: |
+        spark_cell() {
+          if [ -n "$1" ] && [ "$1" != "none" ]; then
+            [ -n "$3" ] && echo "[.spark report]($3)" || echo "\`$1\`"
+          elif [ -n "$2" ] && [ "$2" != "none" ]; then
+            local out=""
+            for u in $2; do out+="[view]($u) "; done
+            echo "${out% }"
+          else
+            echo "n/a"
+          fi
+        }
         {
           echo "### Runtime test"
           echo ""
           echo "| Check | Result |"
           echo "|---|---|"
-          echo "| Client | $CLIENT_RESULT |"
-          echo "| Server | $SERVER_RESULT |"
+          echo "| Client | ${CLIENT_RESULT:-n/a} |"
+          echo "| Server | ${SERVER_RESULT:-n/a} |"
+          echo "| Spark (client) | $(spark_cell "$SPARK_CLIENT_FILES" "$SPARK_CLIENT" "$CLIENT_LOGS_URL") |"
+          echo "| Spark (server) | $(spark_cell "$SPARK_SERVER_FILES" "$SPARK_SERVER" "$SERVER_LOGS_URL") |"
         } >> "$GITHUB_STEP_SUMMARY"
 
-    - name: "Upload logs"
-      if: ${{ always() && inputs.artifact_logs == 'true' }}
-      uses: actions/upload-artifact@v7.0.2
-      with:
-        name: ${{ inputs.artifact_prefix }}-logs
-        path: |
-          client/logs/
-          client/crash-reports/
-          server/logs/
-          server/crash-reports/
-        if-no-files-found: warn
-
-    - name: "Collect failure details"
+    - name: "Build failure report"
       if: failure()
       shell: bash
+      env:
+        CLIENT_LOGS_URL: ${{ steps.up-client.outputs.artifact-url }}
+        SERVER_LOGS_URL: ${{ steps.up-server.outputs.artifact-url }}
       run: |
-        mkdir -p fail-logs
+        spark_md() {
+          if [ -n "$2" ] && [ "$2" != "none" ]; then
+            [ -n "$4" ] && echo "**Spark ($1)**: [\`$2\`]($4)" || echo "**Spark ($1)**: \`$2\`"
+          elif [ -n "$3" ] && [ "$3" != "none" ]; then
+            local out=""
+            for u in $3; do out+="[view]($u) "; done
+            echo "**Spark ($1)**: ${out% }"
+          fi
+          return 0
+        }
+        logs_md() {
+          local out=""
+          [ -n "$1" ] && out="[client]($1)"
+          [ -n "$2" ] && out+="${out:+ · }[server]($2)"
+          [ -n "$out" ] && echo "**Logs**: $out"
+          return 0
+        }
+        log_details() { # $1=dir $2=artifact url
+          for spec in "logs/latest.log|latest.log|80" "logs/kubejs/server.log|kubejs/server.log|40" "logs/stderr_stream.log|stderr_stream.log|30"; do
+            f="${spec%%|*}"; rest="${spec#*|}"; name="${rest%%|*}"; n="${rest##*|}"
+            [ -f "$1/$f" ] || continue
+            echo "<details><summary><b>$1 — $name (tail $n)</b> · <a href=\"$2\">download $1 logs</a></summary>"
+            echo ''
+            echo '```text'
+            tail -$n "$1/$f"
+            echo '```'
+            echo ''
+            echo '</details>'
+            echo ''
+          done
+          local crash
+          crash=$(ls -t $1/crash-reports/*.txt 2>/dev/null | head -1 || true)
+          if [ -n "$crash" ]; then
+            echo "<details><summary><b>$1 — $(basename "$crash")</b> · <a href=\"$2\">download $1 logs</a></summary>"
+            echo ''
+            echo '```text'
+            head -60 "$crash"
+            echo '```'
+            echo ''
+            echo '</details>'
+            echo ''
+          fi
+          if [ -f "$1/logs/latest.log" ]; then
+            local block
+            block=$(awk '/Generating server health report/{n=NR} n&&NR>=n' "$1/logs/latest.log" | head -40 | sed -E 's/^\[[0-9:.]+\] (\[[^]]*\] ?)+: //')
+            if [ -n "$block" ]; then
+              echo "<details><summary><b>$1 — spark stats</b></summary>"
+              echo ''
+              echo '```text'
+              echo "$block"
+              echo '```'
+              echo ''
+              echo "Full profile: \`*.spark\` file in the $1 logs artifact (upload at spark.lucko.me)"
+              echo ''
+              echo '</details>'
+              echo ''
+            fi
+          fi
+          return 0
+        }
         {
           echo '### Runtime test failed'
           echo ''
           echo "**Client**: ${CLIENT_RESULT:-n/a} · **Server**: ${SERVER_RESULT:-n/a}"
+          logs_md "$CLIENT_LOGS_URL" "$SERVER_LOGS_URL"
+          spark_md client "$SPARK_CLIENT_FILES" "$SPARK_CLIENT" "$CLIENT_LOGS_URL"
+          spark_md server "$SPARK_SERVER_FILES" "$SPARK_SERVER" "$SERVER_LOGS_URL"
         } > pr-comment-short.md
         {
           echo '### Runtime test failed'
           echo ''
           echo "**Client**: ${CLIENT_RESULT:-n/a} · **Server**: ${SERVER_RESULT:-n/a}"
-          echo ''
-          echo '<details>'
-          echo '<summary><b>Details & logs</b></summary>'
+          logs_md "$CLIENT_LOGS_URL" "$SERVER_LOGS_URL"
+          spark_md client "$SPARK_CLIENT_FILES" "$SPARK_CLIENT" "$CLIENT_LOGS_URL"
+          spark_md server "$SPARK_SERVER_FILES" "$SPARK_SERVER" "$SERVER_LOGS_URL"
           echo ''
           found=0
           if [ -s analysis.md ]; then
+            echo '<details><summary><b>Findings</b></summary>'
+            echo ''
             cat analysis.md
+            echo ''
+            echo '</details>'
             echo ''
             found=1
           fi
-          for dir in client server; do
-            crash=$(ls -t $dir/crash-reports/*.txt 2>/dev/null | head -1 || true)
-            if [ -n "$crash" ]; then
-              echo "**$dir — crash report**"
-              echo '```text'
-              head -80 "$crash"
-              echo '```'
-              echo ''
-              found=1
-            elif [ -f $dir/logs/latest.log ]; then
-              echo "**$dir — latest.log (tail)**"
-              echo '```text'
-              tail -80 $dir/logs/latest.log
-              echo '```'
-              echo ''
-              found=1
-            fi
-            cp -r $dir/logs fail-logs/logs-$dir 2>/dev/null || true
-            cp -r $dir/crash-reports fail-logs/crash-reports-$dir 2>/dev/null || true
-          done
-          if [ "$found" -eq 0 ]; then
-            echo 'No crash report or latest.log found — see workflow log and attached logs.'
-            echo ''
+          log_details client "$CLIENT_LOGS_URL"
+          log_details server "$SERVER_LOGS_URL"
+          if [ "$found" -eq 0 ] && ! compgen -G 'client/logs/*' >/dev/null && ! compgen -G 'server/logs/*' >/dev/null; then
+            echo 'No logs found — see workflow log.'
           fi
-          echo '</details>'
         } > pr-comment.md
-        cp pr-comment.md fail-logs/
         cat pr-comment.md >> "$GITHUB_STEP_SUMMARY"
 
     - name: "Comment PR on failure (summary)"
@@ -311,6 +427,3 @@ runs:
         issue: ${{ inputs.pr_number || github.event.pull_request.number }}
         message-path: pr-comment.md
         message-id: runtime-test
-        attach-path: fail-logs/
-        attach-name: ${{ inputs.artifact_prefix }}-pr-logs
-        attach-text: '[Download full logs](%ARTIFACT_URL%)'

@@ -185,13 +185,23 @@ runs:
           kerr=$(grep -rsh 'ERROR' $dir/logs/kubejs/*.log 2>/dev/null; grep -h "Error in '" $dir/logs/latest.log 2>/dev/null | head -3 || true)
           if [ -n "$kerr" ]; then
             echo "::error title=KubeJS errors ($dir)::$(echo "$kerr" | head -5 | tr '\n' ' ')"
-            echo "- **KubeJS errors ($dir)**: $(echo "$kerr" | head -5 | tr '\n' ' ')" >> analysis.md
+            {
+              echo "**KubeJS errors ($dir)**:"
+              echo '```text'
+              echo "$kerr" | head -5
+              echo '```'
+            } >> analysis.md
             echo "${dir^^}_RESULT=fail" >> "$GITHUB_ENV"
             bad=1
           fi
           if grep -sqE 'Mixin apply failed|InjectionError' $dir/logs/latest.log; then
             echo "::error title=Mixin failure ($dir)::$(grep -m3 -E 'Mixin apply failed|InjectionError' $dir/logs/latest.log | tr '\n' ' ')"
-            echo "- **Mixin failure ($dir)**: $(grep -m3 -E 'Mixin apply failed|InjectionError' $dir/logs/latest.log | tr '\n' ' ')" >> analysis.md
+            {
+              echo "**Mixin failure ($dir)**:"
+              echo '```text'
+              grep -m3 -E 'Mixin apply failed|InjectionError' $dir/logs/latest.log
+              echo '```'
+            } >> analysis.md
             echo "${dir^^}_RESULT=fail" >> "$GITHUB_ENV"
             bad=1
           fi
@@ -240,6 +250,17 @@ runs:
         mkdir -p fail-logs
         {
           echo '### Runtime test failed'
+          echo ''
+          echo "**Client**: ${CLIENT_RESULT:-n/a} · **Server**: ${SERVER_RESULT:-n/a}"
+        } > pr-comment-short.md
+        {
+          echo '### Runtime test failed'
+          echo ''
+          echo "**Client**: ${CLIENT_RESULT:-n/a} · **Server**: ${SERVER_RESULT:-n/a}"
+          echo ''
+          echo '<details>'
+          echo '<summary><b>Details & logs</b></summary>'
+          echo ''
           found=0
           if [ -s analysis.md ]; then
             cat analysis.md
@@ -249,31 +270,41 @@ runs:
           for dir in client server; do
             crash=$(ls -t $dir/crash-reports/*.txt 2>/dev/null | head -1 || true)
             if [ -n "$crash" ]; then
-              echo "#### $dir — crash report"
-              echo '```'
+              echo "**$dir — crash report**"
+              echo '```text'
               head -80 "$crash"
               echo '```'
+              echo ''
               found=1
             elif [ -f $dir/logs/latest.log ]; then
-              echo "#### $dir — latest.log (tail)"
-              echo '```'
+              echo "**$dir — latest.log (tail)**"
+              echo '```text'
               tail -80 $dir/logs/latest.log
               echo '```'
+              echo ''
               found=1
             fi
             cp -r $dir/logs fail-logs/logs-$dir 2>/dev/null || true
             cp -r $dir/crash-reports fail-logs/crash-reports-$dir 2>/dev/null || true
           done
           if [ "$found" -eq 0 ]; then
-            echo '```'
-            echo 'No crash report or latest.log. See workflow log and attached logs.'
-            echo '```'
+            echo 'No crash report or latest.log found — see workflow log and attached logs.'
+            echo ''
           fi
+          echo '</details>'
         } > pr-comment.md
         cp pr-comment.md fail-logs/
         cat pr-comment.md >> "$GITHUB_STEP_SUMMARY"
 
-    - name: "Comment PR on failure"
+    - name: "Comment PR on failure (summary)"
+      if: ${{ failure() && (github.event_name == 'pull_request' || inputs.pr_number != '') }}
+      uses: mshick/add-pr-comment@v3.12.0
+      with:
+        issue: ${{ inputs.pr_number || github.event.pull_request.number }}
+        message-path: pr-comment-short.md
+        message-id: runtime-test
+
+    - name: "Comment PR on failure (details)"
       if: ${{ failure() && (github.event_name == 'pull_request' || inputs.pr_number != '') }}
       uses: mshick/add-pr-comment@v3.12.0
       with:

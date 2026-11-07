@@ -108,64 +108,45 @@ file_details() { # $1=dir $2=relpath $3=name $4=mclo env suffix $5=max $6=[error
   echo ''
 }
 
-group_details() { # $1=title; stdin → wrapped in named <details> only when non-empty
-  local inner
-  inner=$(cat)
-  [ -z "${inner//[[:space:]]/}" ] && return 0
-  echo "<details><summary><b>$1</b></summary>"
+side_details() { # $1=dir $2=artifact url — flat: bold header + one-level details
+  local st crash f block link
+  st=$(side_status "$1")
+  [ "$st" != "fail" ] && [ ! -d "$1" ] && return 0
+  echo "**$1 — $st**${2:+ · [download $1 logs]($2)}"
   echo ''
-  echo "$inner"
-  echo '</details>'
-  echo ''
-}
-
-side_details() { # $1=dir $2=artifact url
-  local inner
-  inner=$(
-    if [ "$(side_status "$1")" = "fail" ]; then
-      if [ ! -s "$1/logs/latest.log" ]; then
-        echo '_No latest.log — process died before logging or never launched._'
-      elif ! grep -qE "$ERR_RE" "$1/logs/latest.log"; then
-        echo '_No error signature in latest.log — harness timeout or clean exit (check step log)._'
-      fi
+  if [ "$st" = "fail" ]; then
+    if [ ! -s "$1/logs/latest.log" ]; then
+      echo '_No latest.log — process died before logging or never launched._'
+    elif ! grep -qE "$ERR_RE" "$1/logs/latest.log"; then
+      echo '_No error signature in latest.log — harness timeout or clean exit (check step log)._'
+    fi
+    echo ''
+  fi
+  file_details "$1" logs/latest.log latest.log LATEST 140
+  file_details "$1" logs/kubejs/server.log kubejs/server.log KUBEJS 100 errors_only
+  file_details "$1" logs/kubejs/startup.log kubejs/startup.log KUBEJS_STARTUP 100 errors_only
+  file_details "$1" logs/kubejs/client.log kubejs/client.log KUBEJS_CLIENT 100 errors_only
+  crash=$(ls -t $1/crash-reports/*.txt 2>/dev/null | head -1 || true)
+  [ -n "$crash" ] && [ -s "$crash" ] && file_details "$1" "${crash#$1/}" "$(basename "$crash")" CRASH 140
+  for f in $1/hs_err_pid*.log; do
+    [ -s "$f" ] && file_details "$1" "${f#$1/}" "$(basename "$f")" HSERR 80 head
+  done
+  file_details "$1" logs/stderr_stream.log stderr_stream.log STDERR 100 errors_only
+  file_details "$1" logs/crash_assistant/crash_assistant_app.log crash_assistant.log "" 60 errors_only
+  block=$(spark_stats "$1/logs/latest.log" 2>/dev/null || true)
+  eval "link=\${SPARK_${1^^}_LINK:-}"
+  spark_ok "$link" || link=""
+  if [ -n "$block" ] || [ -n "$link" ]; then
+    echo '<details><summary>spark stats</summary>'
+    echo ''
+    if [ -n "$block" ]; then
+      echo '```text'
+      echo "$block"
+      echo '```'
       echo ''
     fi
-    {
-      file_details "$1" logs/latest.log latest.log LATEST 140
-    } | group_details "logs"
-    {
-      file_details "$1" logs/kubejs/server.log kubejs/server.log KUBEJS 100 errors_only
-      file_details "$1" logs/kubejs/startup.log kubejs/startup.log KUBEJS_STARTUP 100 errors_only
-      file_details "$1" logs/kubejs/client.log kubejs/client.log KUBEJS_CLIENT 100 errors_only
-    } | group_details "kubejs-logs"
-    {
-      crash=$(ls -t $1/crash-reports/*.txt 2>/dev/null | head -1 || true)
-      [ -n "$crash" ] && [ -s "$crash" ] && file_details "$1" "${crash#$1/}" "$(basename "$crash")" CRASH 140
-      for f in $1/hs_err_pid*.log; do
-        [ -s "$f" ] && file_details "$1" "${f#$1/}" "$(basename "$f")" HSERR 80 head
-      done
-    } | group_details "crash-logs"
-    {
-      file_details "$1" logs/stderr_stream.log stderr_stream.log STDERR 100 errors_only
-      file_details "$1" logs/crash_assistant/crash_assistant_app.log crash_assistant.log "" 60 errors_only
-    } | group_details "other"
-    {
-      block=$(spark_stats "$1/logs/latest.log" 2>/dev/null || true)
-      eval "link=\${SPARK_${1^^}_LINK:-}"
-      spark_ok "$link" || link=""
-      if [ -n "$block" ]; then
-        echo '```text'
-        echo "$block"
-        echo '```'
-        echo ''
-      fi
-      [ -n "$link" ] && echo "[Interactive flame graph]($link)"
-    } | group_details "spark stats"
-  ) || true
-  [ -z "${inner//[[:space:]]/}" ] && return 0
-  echo "<details><summary><b>$1 — $(side_status "$1")</b>${2:+ · <a href=\"$2\">download $1 logs</a>}</summary>"
-  echo ''
-  echo "$inner"
-  echo '</details>'
-  echo ''
+    [ -n "$link" ] && { echo "[Interactive flame graph]($link)"; echo ''; }
+    echo '</details>'
+    echo ''
+  fi
 }

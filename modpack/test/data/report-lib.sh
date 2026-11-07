@@ -34,10 +34,14 @@ logs_md() {
   return 0
 }
 
+spark_ok() { # link must carry a profile key — bare 'https://spark.lucko.me/' is useless
+  [ -n "${1:-}" ] && [ "${1%/}" != "https://spark.lucko.me" ]
+}
+
 spark_md() { # "**Spark flame graphs**: [client](u) · [server](u)" when viewer links exist
   local out="" c=${SPARK_CLIENT_LINK:-} s=${SPARK_SERVER_LINK:-}
-  [ -n "$c" ] && out="[client]($c)"
-  [ -n "$s" ] && out+="${out:+ · }[server]($s)"
+  spark_ok "$c" && out="[client]($c)"
+  spark_ok "$s" && out+="${out:+ · }[server]($s)"
   [ -n "$out" ] && echo "**Spark flame graphs**: $out"
   return 0
 }
@@ -119,6 +123,14 @@ group_details() { # $1=title; stdin → wrapped in named <details> only when non
 side_details() { # $1=dir $2=artifact url
   local inner
   inner=$(
+    if [ "$(side_status "$1")" = "fail" ]; then
+      if [ ! -s "$1/logs/latest.log" ]; then
+        echo '_No latest.log — process died before logging or never launched._'
+      elif ! grep -qE "$ERR_RE" "$1/logs/latest.log"; then
+        echo '_No error signature in latest.log — harness timeout or clean exit (check step log)._'
+      fi
+      echo ''
+    fi
     {
       file_details "$1" logs/latest.log latest.log LATEST 140
     } | group_details "logs"
@@ -141,6 +153,7 @@ side_details() { # $1=dir $2=artifact url
     {
       block=$(spark_stats "$1/logs/latest.log" 2>/dev/null || true)
       eval "link=\${SPARK_${1^^}_LINK:-}"
+      spark_ok "$link" || link=""
       if [ -n "$block" ]; then
         echo '```text'
         echo "$block"

@@ -24,9 +24,13 @@ inputs:
     required: false
     default: "squash"
   auto_merge:
-    description: "'true' = enable GitHub auto-merge and let rulesets gate the merge; 'false' = merge immediately"
+    description: "'true' = poll until the PR becomes mergeable (checks/reviews pass), then merge; 'false' = merge immediately"
     required: false
     default: "false"
+  wait_minutes:
+    description: "auto_merge mode: max minutes to wait for the PR to become mergeable"
+    required: false
+    default: "120"
   delete_branch:
     required: false
     default: "true"
@@ -51,13 +55,29 @@ runs:
         METHOD: ${{ inputs.merge_method }}
         DEL: ${{ inputs.delete_branch == 'true' && '--delete-branch' || '' }}
       run: |
+        merge() { gh pr merge "--$METHOD" $DEL "$PR"; }
+
         if [ "${{ inputs.auto_merge }}" = "true" ]; then
-          [ "$(gh pr view "$PR" --json autoMergeRequest --jq '.autoMergeRequest != null')" = "false" ] \
-            && gh pr merge --auto "--$METHOD" "$PR"
+          deadline=$(( SECONDS + ${{ inputs.wait_minutes }} * 60 ))
+          last=""
+          while :; do
+            read -r pr_state mstate < <(gh pr view "$PR" --json state,mergeStateStatus --jq '"\(.state) \(.mergeStateStatus)"')
+            case "$pr_state" in
+              MERGED) echo "Already merged"; exit 0 ;;
+              CLOSED) echo "PR is closed"; exit 1 ;;
+            esac
+            case "$mstate" in
+              clean|CLEAN|unstable|UNSTABLE) merge && exit 0 ;;
+              dirty|DIRTY) echo "PR has merge conflicts"; exit 1 ;;
+            esac
+            [ "$SECONDS" -ge "$deadline" ] && { echo "Timeout waiting for mergeable state (last: $mstate)"; exit 1; }
+            [ "$mstate" != "$last" ] && echo "mergeStateStatus: $mstate"; last=$mstate
+            sleep 30
+          done
         else
           # GitHub may still compute mergeable_state right after PR creation
           for i in 1 2 3 4; do
-            gh pr merge "--$METHOD" $DEL "$PR" && break
+            merge && break
             [ "$i" = 4 ] && exit 1
             sleep 5
           done

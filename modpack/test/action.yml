@@ -71,6 +71,14 @@ runs:
           && sed -i 's/"enabled" *: *true/"enabled": false/' client/config/ftbbackups2.json || true
         [ -f client/config/ftbbackups.cfg ] \
           && sed -i 's/B:enabled *= *true/B:enabled=false/' client/config/ftbbackups.cfg || true
+        # Forge 47.x early display window can't init under headless CI and
+        # spams a y/n console prompt — disable it via the documented fml.toml key.
+        mkdir -p client/config
+        if grep -q 'earlyWindowControl' client/config/fml.toml 2>/dev/null; then
+          sed -i 's/^ *earlyWindowControl *= *.*/earlyWindowControl = false/' client/config/fml.toml
+        else
+          echo 'earlyWindowControl = false' >> client/config/fml.toml
+        fi
         if [ "${{ inputs.spark }}" = "true" ] && [ -d client/kubejs/server_scripts ]; then
           cp "${{ github.action_path }}/data/ci-spark.js" client/kubejs/server_scripts/
         fi

@@ -18,7 +18,11 @@ inputs:
   wiki_repo:
     description: "Wiki repository name (without owner)"
     required: false
-    default: "Wiki-Dev"
+    default: "Wiki"
+  wiki_branch:
+    description: "Wiki branch to sync changelogs into"
+    required: false
+    default: "dev"
   app_id:
     description: "GitHub App client id installed on the wiki repo"
     required: true
@@ -43,6 +47,7 @@ runs:
       with:
         repository: ${{ inputs.wiki_owner }}/${{ inputs.wiki_repo }}
         token: ${{ steps.token.outputs.token }}
+        ref: ${{ inputs.wiki_branch }}
         path: wiki
 
     - name: "Write changelog files"
@@ -133,7 +138,7 @@ runs:
         repository: ${{ inputs.wiki_owner }}/${{ inputs.wiki_repo }}
         repository_path: wiki
         source_branch: changelog/${{ inputs.pack }}
-        target_branch: main
+        target_branch: ${{ inputs.wiki_branch }}
         title: "docs(changelog): ${{ inputs.pack }} ${{ inputs.tag }}"
         body: "Automated changelog sync for **${{ inputs.pack }}**."
         draft: "false"

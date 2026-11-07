@@ -28,6 +28,10 @@ inputs:
   environment:
     required: false
     default: "client | server"
+  enable_curseforge_server:
+    description: "Publish the serverpack to CurseForge"
+    required: false
+    default: "false"
   curseforge_server_name:
     required: false
     default: ""
@@ -80,8 +84,8 @@ runs:
         curseforge-id: ${{ inputs.curseforge_id }}
         curseforge-token: ${{ inputs.curseforge_token }}
         curseforge-files: ${{ inputs.project_full_name }}-curseforge.zip
-        curseforge-server-files: ${{ inputs.project_full_name }}-serverpack.zip
-        curseforge-server-name: ${{ inputs.curseforge_server_name }}
+        curseforge-server-files: ${{ inputs.enable_curseforge_server == 'true' && format('{0}-serverpack.zip', inputs.project_full_name) || '' }}
+        curseforge-server-name: ${{ inputs.enable_curseforge_server == 'true' && inputs.curseforge_server_name || '' }}
         github-tag: ${{ inputs.project_version }}
         github-token: ${{ inputs.github_token }}
         files: ${{ inputs.files }}

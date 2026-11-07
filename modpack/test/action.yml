@@ -47,7 +47,7 @@ inputs:
     required: false
     default: "modpack-test"
   spark:
-    description: "Inject spark mod and collect profiler/health links for client+server"
+    description: "Inject spark mod and collect health metrics (TPS/CPU/memory) for client+server"
     required: false
     default: "true"
 
@@ -111,7 +111,7 @@ runs:
         URL=$(curl -fsSL "https://api.modrinth.com/v2/project/spark/version?loaders=%5B%22${LOADER}%22%5D&game_versions=%5B%22${{ inputs.mc_version }}%22%5D" \
           | jq -r '.[0].files[] | select(.primary == true) | .url' | head -1) || URL=""
         if [ -z "$URL" ]; then
-          echo "::warning::spark jar download failed — profiling disabled"
+          echo "::warning::spark jar download failed — spark stats disabled"
           exit 0
         fi
         for d in client server; do
@@ -153,6 +153,7 @@ runs:
         EOF
 
     - name: "Client test"
+      id: clienttest
       uses: headlesshq/mc-runtime-test@5.0.0
       with:
         mc: ${{ inputs.mc_version }}
@@ -165,12 +166,12 @@ runs:
         headlessmc-command: ${{ inputs.headlessmc_command }}
 
     - name: "Mark client pass"
-      if: success()
+      if: ${{ steps.clienttest.outcome == 'success' }}
       shell: bash
       run: echo "CLIENT_RESULT=pass" >> "$GITHUB_ENV"
 
     - name: "Pin server JVM"
-      if: ${{ inputs.server_artifact != '' }}
+      if: ${{ always() && inputs.server_artifact != '' }}
       shell: bash
       run: |
         # `server add` pins profile javaVersion from the vanilla version.json;
@@ -186,7 +187,8 @@ runs:
         jq '.javaVersion' "$VJ"
 
     - name: "Server test"
-      if: ${{ inputs.server_artifact != '' }}
+      id: servertest
+      if: ${{ always() && inputs.server_artifact != '' }}
       uses: headlesshq/mc-server-test@2.0.0
       with:
         mc: "${{ inputs.mc_version }} ${{ inputs.loader_version }}"
@@ -197,12 +199,12 @@ runs:
         test-file: ${{ inputs.spark == 'true' && format('{0}/data/server-test.json', github.action_path) || 'none' }}
 
     - name: "Mark server pass"
-      if: ${{ success() && inputs.server_artifact != '' }}
+      if: ${{ steps.servertest.outcome == 'success' }}
       shell: bash
       run: echo "SERVER_RESULT=pass" >> "$GITHUB_ENV"
 
     - name: "Mark server fail"
-      if: ${{ failure() && inputs.server_artifact != '' }}
+      if: ${{ steps.servertest.outcome == 'failure' }}
       shell: bash
       run: echo "SERVER_RESULT=fail" >> "$GITHUB_ENV"
 
@@ -250,18 +252,25 @@ runs:
         done
         [ "$bad" -eq 0 ]
 
-    - name: "Collect spark reports"
+    - name: "Collect spark profiles"
       if: always()
       shell: bash
       run: |
         for dir in client server; do
-          urls=$(grep -oh 'https://spark\.lucko\.me/[A-Za-z0-9_-]*' $dir/logs/latest.log 2>/dev/null | sort -u | tr '\n' ' ' | sed 's/ $//')
-          echo "SPARK_${dir^^}=${urls:-none}" >> "$GITHUB_ENV"
           mkdir -p spark/$dir
-          files=$(find $dir -name '*.spark' -exec basename {} \; 2>/dev/null | sort -u | tr '\n' ' ' | sed 's/ $//')
           find $dir -name '*.spark' -exec cp -n {} spark/$dir/ \; 2>/dev/null || true
-          echo "SPARK_${dir^^}_FILES=${files:-none}" >> "$GITHUB_ENV"
-          [ -n "$files$urls" ] && echo "$dir: files=[$files] links=[$urls]"
+          latest=$(ls -t spark/$dir/*.spark 2>/dev/null | head -1 || true)
+          [ -z "$latest" ] && continue
+          key=$(gzip -c "$latest" | curl -fsS --max-time 60 -X POST "https://spark-usercontent.lucko.me/post" \
+            -H "Content-Type: application/x-spark-sampler" -H "Content-Encoding: gzip" \
+            -H "User-Agent: spark-plugin" --data-binary @- -D - -o /dev/null 2>/dev/null \
+            | grep -i '^location:' | tr -d '\r' | awk '{print $NF}' || true)
+          if [ -n "$key" ]; then
+            echo "SPARK_${dir^^}_LINK=https://spark.lucko.me/${key##*/}" >> "$GITHUB_ENV"
+            echo "$dir: https://spark.lucko.me/${key##*/}"
+          else
+            echo "::warning::spark profile upload failed ($dir) — file kept in artifact"
+          fi
         done
 
     - name: "Upload client logs"
@@ -297,17 +306,7 @@ runs:
         CLIENT_LOGS_URL: ${{ steps.up-client.outputs.artifact-url }}
         SERVER_LOGS_URL: ${{ steps.up-server.outputs.artifact-url }}
       run: |
-        spark_cell() {
-          if [ -n "$1" ] && [ "$1" != "none" ]; then
-            [ -n "$3" ] && echo "[.spark report]($3)" || echo "\`$1\`"
-          elif [ -n "$2" ] && [ "$2" != "none" ]; then
-            local out=""
-            for u in $2; do out+="[view]($u) "; done
-            echo "${out% }"
-          else
-            echo "n/a"
-          fi
-        }
+        spark_cell() { [ -n "$1" ] && echo "[flame graph]($1)" || echo "n/a"; }
         {
           echo "### Runtime test"
           echo ""
@@ -315,9 +314,33 @@ runs:
           echo "|---|---|"
           echo "| Client | ${CLIENT_RESULT:-n/a} |"
           echo "| Server | ${SERVER_RESULT:-n/a} |"
-          echo "| Spark (client) | $(spark_cell "$SPARK_CLIENT_FILES" "$SPARK_CLIENT" "$CLIENT_LOGS_URL") |"
-          echo "| Spark (server) | $(spark_cell "$SPARK_SERVER_FILES" "$SPARK_SERVER" "$SERVER_LOGS_URL") |"
+          echo "| Spark (client) | $(spark_cell "${SPARK_CLIENT_LINK:-}") |"
+          echo "| Spark (server) | $(spark_cell "${SPARK_SERVER_LINK:-}") |"
         } >> "$GITHUB_STEP_SUMMARY"
+        # On success the failure report won't run — show spark stats here instead.
+        if [ "${CLIENT_RESULT:-}" != "fail" ] && [ "${SERVER_RESULT:-}" != "fail" ]; then
+          for dir in client server; do
+            a=$(grep -nF 'Generating server health report' "$dir/logs/latest.log" 2>/dev/null | tail -1 | cut -d: -f1 || true)
+            block=""
+            [ -n "$a" ] && block=$(tail -n "+$a" "$dir/logs/latest.log" | grep -F '[spark/' \
+              | sed -E 's/^\[[0-9:.]+\] (\[[^]]*\] ?)+: //' \
+              | grep -E '^(Generating server health|>|[[:space:]]+[0-9])' | head -30 || true)
+            if [ -n "$block" ]; then
+              {
+                echo ''
+                echo "<details><summary><b>spark stats — $dir</b></summary>"
+                echo ''
+                echo '```text'
+                echo "$block"
+                echo '```'
+                echo ''
+                eval "link=\${SPARK_${dir^^}_LINK:-}"
+                [ -n "$link" ] && echo "[Interactive flame graph]($link)" && echo ''
+                echo '</details>'
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+        fi
 
     - name: "Upload logs to mclo.gs"
       if: failure()
@@ -353,14 +376,11 @@ runs:
         CLIENT_LOGS_URL: ${{ steps.up-client.outputs.artifact-url }}
         SERVER_LOGS_URL: ${{ steps.up-server.outputs.artifact-url }}
       run: |
-        spark_md() {
-          if [ -n "$2" ] && [ "$2" != "none" ]; then
-            [ -n "$4" ] && echo "**Spark ($1)**: [\`$2\`]($4)" || echo "**Spark ($1)**: \`$2\`"
-          elif [ -n "$3" ] && [ "$3" != "none" ]; then
-            local out=""
-            for u in $3; do out+="[view]($u) "; done
-            echo "**Spark ($1)**: ${out% }"
-          fi
+        spark_md() { # prints "**Spark**: [client](u) · [server](u)" when viewer links exist
+          local out="" c=${SPARK_CLIENT_LINK:-} s=${SPARK_SERVER_LINK:-}
+          [ -n "$c" ] && out="[client]($c)"
+          [ -n "$s" ] && out+="${out:+ · }[server]($s)"
+          [ -n "$out" ] && echo "**Spark flame graphs**: $out"
           return 0
         }
         logs_md() {
@@ -372,8 +392,9 @@ runs:
           [ -n "$out" ] && echo "**Logs**: $out"
           return 0
         }
+        ERR_RE='InjectionError|Mixin apply failed|Caused by:|(/|\[)(ERROR|FATAL)'
         log_excerpt() { # $1=file $2=max → prints "LABEL" line then excerpt lines
-          local a s
+          local a
           a=$(grep -nF -- '---- Minecraft Crash Report ----' "$1" | tail -1 | cut -d: -f1 || true)
           if [ -n "$a" ]; then
             echo 'crash report'
@@ -382,18 +403,26 @@ runs:
               | head -"$2"
             return 0
           fi
-          a=$(grep -nE 'InjectionError|Mixin apply failed|Caused by:|/(ERROR|FATAL)' "$1" | tail -1 | cut -d: -f1 || true)
-          if [ -n "$a" ]; then
+          if grep -qE "$ERR_RE" "$1"; then
             echo 'error context'
-            s=$(( a > 10 ? a - 10 : 1 ))
-            sed -n "${s},$(( a + $2 ))p" "$1"
+            grep -n -C12 -E "$ERR_RE" "$1" | head -"$2"
             return 0
           fi
           echo "tail $2"
           tail -"$2" "$1"
         }
-        file_details() { # $1=dir $2=relpath $3=name $4=mclo env suffix $5=max lines
+        spark_stats() { # $1=latest.log → spark metrics only (TPS/CPU/mem)
+          local a
+          a=$(grep -nF 'Generating server health report' "$1" | tail -1 | cut -d: -f1 || true)
+          [ -z "$a" ] && return 0
+          tail -n "+$a" "$1" | grep -F '[spark/' \
+            | sed -E 's/^\[[0-9:.]+\] (\[[^]]*\] ?)+: //' \
+            | grep -E '^(Generating server health|>|[[:space:]]+[0-9])' \
+            | head -30
+        }
+        file_details() { # $1=dir $2=relpath $3=name $4=mclo env suffix $5=max $6=[errors_only]
           [ -s "$1/$2" ] || return 0
+          [ "$6" = "errors_only" ] && ! grep -qE "$ERR_RE" "$1/$2" && return 0
           local out body label link var
           out=$(log_excerpt "$1/$2" "$5")
           label=${out%%$'\n'*}
@@ -412,8 +441,8 @@ runs:
           local inner
           inner=$(
             file_details "$1" logs/latest.log latest.log LATEST 140
-            file_details "$1" logs/kubejs/server.log kubejs/server.log KUBEJS 40
-            file_details "$1" logs/stderr_stream.log stderr_stream.log STDERR 30
+            file_details "$1" logs/kubejs/server.log kubejs/server.log KUBEJS 100 errors_only
+            file_details "$1" logs/stderr_stream.log stderr_stream.log STDERR 100 errors_only
             local crash
             crash=$(ls -t $1/crash-reports/*.txt 2>/dev/null | head -1 || true)
             if [ -n "$crash" ] && [ -s "$crash" ]; then
@@ -421,16 +450,18 @@ runs:
             fi
             if [ -f "$1/logs/latest.log" ]; then
               local block
-              block=$(awk '/Generating server health report/{n=NR} n&&NR>=n' "$1/logs/latest.log" | head -40 | sed -E 's/^\[[0-9:.]+\] (\[[^]]*\] ?)+: //')
-              if [ -n "$block" ]; then
+              block=$(spark_stats "$1/logs/latest.log")
+              eval "link=\${SPARK_${1^^}_LINK:-}"
+              if [ -n "$block" ] || [ -n "$link" ]; then
                 echo '<details><summary>spark stats</summary>'
                 echo ''
-                echo '```text'
-                echo "$block"
-                echo '```'
-                echo ''
-                echo "Full profile: \`*.spark\` file in the $1 logs artifact (upload at spark.lucko.me)"
-                echo ''
+                if [ -n "$block" ]; then
+                  echo '```text'
+                  echo "$block"
+                  echo '```'
+                  echo ''
+                fi
+                [ -n "$link" ] && echo "[Interactive flame graph]($link)" && echo ''
                 echo '</details>'
                 echo ''
               fi
@@ -448,16 +479,14 @@ runs:
           echo ''
           echo "**Client**: ${CLIENT_RESULT:-n/a} · **Server**: ${SERVER_RESULT:-n/a}"
           logs_md "$CLIENT_LOGS_URL" "$SERVER_LOGS_URL"
-          spark_md client "$SPARK_CLIENT_FILES" "$SPARK_CLIENT" "$CLIENT_LOGS_URL"
-          spark_md server "$SPARK_SERVER_FILES" "$SPARK_SERVER" "$SERVER_LOGS_URL"
+          spark_md
         } > pr-comment-short.md
         {
           echo '### Runtime test failed'
           echo ''
           echo "**Client**: ${CLIENT_RESULT:-n/a} · **Server**: ${SERVER_RESULT:-n/a}"
           logs_md "$CLIENT_LOGS_URL" "$SERVER_LOGS_URL"
-          spark_md client "$SPARK_CLIENT_FILES" "$SPARK_CLIENT" "$CLIENT_LOGS_URL"
-          spark_md server "$SPARK_SERVER_FILES" "$SPARK_SERVER" "$SERVER_LOGS_URL"
+          spark_md
           echo ''
           found=0
           if [ -s analysis.md ]; then

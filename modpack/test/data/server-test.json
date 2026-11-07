@@ -3,12 +3,10 @@
   "totalTimeout": 900,
   "steps": [
     { "type": "ENDS_WITH", "message": "For help, type \"help\"", "timeout": 300 },
+    { "type": "SEND", "message": "spark healthreport" },
     { "type": "SEND", "message": "spark profiler start" },
     { "type": "WAIT", "timeout": 60 },
     { "type": "SEND", "message": "spark profiler stop --save-to-file" },
-    { "type": "SEND", "message": "spark tps" },
-    { "type": "WAIT", "timeout": 20 },
-    { "type": "SEND", "message": "spark healthreport" },
     { "type": "SEND", "message": "stop", "timeout": 180 }
   ]
 }

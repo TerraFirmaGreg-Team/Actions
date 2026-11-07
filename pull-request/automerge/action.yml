@@ -6,6 +6,10 @@ inputs:
     required: true
   pull_request:
     required: true
+  repository:
+    description: "owner/name of the PR's repo (defaults to the calling repo)"
+    required: false
+    default: ""
   merge_method:
     description: "merge|squash|rebase — must be allowed by the target branch ruleset"
     required: false
@@ -25,6 +29,7 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github_token }}
+        GH_REPO: ${{ inputs.repository || github.repository }}
         PR: ${{ inputs.pull_request }}
         METHOD: ${{ inputs.merge_method }}
         DEL: ${{ inputs.delete_branch == 'true' && '--delete-branch' || '' }}

@@ -11,8 +11,9 @@ inputs:
     required: false
     default: ""
   pack_artifact:
-    description: "Built multimc artifact name"
-    required: true
+    description: "Built multimc artifact name; required for mode=both|client"
+    required: false
+    default: ""
   server_artifact:
     description: "Built serverpack artifact name; empty = skip server test"
     required: false
@@ -50,19 +51,40 @@ inputs:
     description: "Inject spark mod; collect health metrics + flame graph link for client+server"
     required: false
     default: "true"
+  mode:
+    description: "both|client|server|report — split phases across jobs for parallel runs"
+    required: false
+    default: "both"
+  client_result:
+    description: "mode=report: outcome of the client test job"
+    required: false
+    default: ""
+  server_result:
+    description: "mode=report: outcome of the server test job"
+    required: false
+    default: ""
+
+outputs:
+  result:
+    description: "clienttest/servertest outcome (mode=client|server)"
+    value: ${{ steps.clienttest.outcome || steps.servertest.outcome || 'none' }}
 
 runs:
   using: "composite"
   steps:
     - name: "Download client pack"
+      if: ${{ inputs.mode == 'both' || inputs.mode == 'client' }}
       uses: actions/download-artifact@v8.0.2
       with:
         name: ${{ inputs.pack_artifact }}
         path: pack-client
 
     - name: "Stage client"
+      if: ${{ inputs.mode == 'both' || inputs.mode == 'client' }}
       shell: bash
       run: |
+        [ -n "${{ inputs.pack_artifact }}" ] \
+          || { echo "::error::pack_artifact is required for mode=${{ inputs.mode }}"; exit 1; }
         mkdir -p client-unzip client
         unzip -oq pack-client/*.zip -d client-unzip
         cp -rf client-unzip/.minecraft/. client/
@@ -82,14 +104,14 @@ runs:
         echo "SERVER_RESULT=skipped" >> "$GITHUB_ENV"
 
     - name: "Download server pack"
-      if: ${{ inputs.server_artifact != '' }}
+      if: ${{ inputs.server_artifact != '' && (inputs.mode == 'both' || inputs.mode == 'server') }}
       uses: actions/download-artifact@v8.0.2
       with:
         name: ${{ inputs.server_artifact }}
         path: pack-server
 
     - name: "Stage server"
-      if: ${{ inputs.server_artifact != '' }}
+      if: ${{ inputs.server_artifact != '' && (inputs.mode == 'both' || inputs.mode == 'server') }}
       shell: bash
       run: |
         mkdir -p server
@@ -100,7 +122,7 @@ runs:
           && sed -i 's/B:enabled *= *true/B:enabled=false/' server/config/ftbbackups.cfg || true
 
     - name: "Install spark"
-      if: ${{ inputs.spark == 'true' }}
+      if: ${{ inputs.spark == 'true' && inputs.mode != 'report' }}
       shell: bash
       run: |
         LOADER="${{ inputs.loader_type }}"
@@ -120,12 +142,14 @@ runs:
           && cp "${{ github.action_path }}/data/ci-spark.js" client/kubejs/server_scripts/ || true
 
     - name: "Setup Java"
+      if: ${{ inputs.mode != 'report' }}
       uses: actions/setup-java@v6.1.0
       with:
         distribution: temurin
         java-version: ${{ inputs.java_version }}
 
     - name: "Pin game JVM"
+      if: ${{ inputs.mode == 'both' || inputs.mode == 'client' }}
       shell: bash
       run: |
         ln -sfn client run
@@ -155,6 +179,7 @@ runs:
 
     - name: "Client test"
       id: clienttest
+      if: ${{ inputs.mode == 'both' || inputs.mode == 'client' }}
       uses: headlesshq/mc-runtime-test@5.0.0
       with:
         mc: ${{ inputs.mc_version }}
@@ -172,7 +197,7 @@ runs:
       run: echo "CLIENT_RESULT=pass" >> "$GITHUB_ENV"
 
     - name: "Pin server JVM"
-      if: ${{ always() && inputs.server_artifact != '' }}
+      if: ${{ always() && inputs.server_artifact != '' && (inputs.mode == 'both' || inputs.mode == 'server') }}
       shell: bash
       run: |
         # `server add` pins profile javaVersion from the vanilla version.json;
@@ -189,7 +214,7 @@ runs:
 
     - name: "Server test"
       id: servertest
-      if: ${{ always() && inputs.server_artifact != '' }}
+      if: ${{ always() && inputs.server_artifact != '' && (inputs.mode == 'both' || inputs.mode == 'server') }}
       uses: headlesshq/mc-server-test@2.0.0
       with:
         mc: "${{ inputs.mc_version }} ${{ inputs.loader_version }}"
@@ -209,8 +234,24 @@ runs:
       shell: bash
       run: echo "SERVER_RESULT=fail" >> "$GITHUB_ENV"
 
+    - name: "Download test logs"
+      if: ${{ inputs.mode == 'report' }}
+      uses: actions/download-artifact@v8.0.2
+      with:
+        pattern: ${{ inputs.artifact_prefix }}-logs-*
+        path: dl
+        merge-multiple: true
+
+    - name: "Init report env"
+      if: ${{ inputs.mode == 'report' }}
+      shell: bash
+      run: |
+        cp -rf dl/. . && rm -rf dl
+        echo "CLIENT_RESULT=${{ inputs.client_result || 'fail' }}" >> "$GITHUB_ENV"
+        echo "SERVER_RESULT=${{ inputs.server_result || 'skipped' }}" >> "$GITHUB_ENV"
+
     - name: "Analyze logs"
-      if: always()
+      if: ${{ always() && (inputs.mode == 'both' || inputs.mode == 'report') }}
       shell: bash
       run: |
         # Findings-only: log errors are shown to reviewers, never fail the run.
@@ -254,12 +295,12 @@ runs:
         [ "$bad" = 1 ] && echo "ANALYZE_BAD=1" >> "$GITHUB_ENV" || true
 
     - name: "Collect spark profiles"
-      if: always()
+      if: ${{ always() && (inputs.mode == 'both' || inputs.mode == 'report') }}
       shell: bash
       run: |
         for dir in client server; do
           mkdir -p spark/$dir
-          find $dir -name '*.spark' -exec cp -n {} spark/$dir/ \; 2>/dev/null || true
+          find $dir spark/$dir -name '*.spark' -exec cp -n {} spark/$dir/ \; 2>/dev/null || true
           latest=$(ls -t spark/$dir/*.spark 2>/dev/null | head -1 || true)
           if [ -z "$latest" ]; then
             # Profiler may have auto-uploaded (timeout/crash) — reuse its viewer link.
@@ -283,7 +324,7 @@ runs:
         done
 
     - name: "Upload client logs"
-      if: ${{ always() && inputs.artifact_logs == 'true' }}
+      if: ${{ always() && inputs.artifact_logs == 'true' && (inputs.mode == 'both' || inputs.mode == 'client') }}
       id: up-client
       uses: actions/upload-artifact@v7.0.2
       with:
@@ -297,7 +338,7 @@ runs:
         if-no-files-found: warn
 
     - name: "Upload server logs"
-      if: ${{ always() && inputs.artifact_logs == 'true' && inputs.server_artifact != '' }}
+      if: ${{ always() && inputs.artifact_logs == 'true' && inputs.server_artifact != '' && (inputs.mode == 'both' || inputs.mode == 'server') }}
       id: up-server
       uses: actions/upload-artifact@v7.0.2
       with:
@@ -311,7 +352,7 @@ runs:
         if-no-files-found: warn
 
     - name: "Test summary"
-      if: always()
+      if: ${{ always() && (inputs.mode == 'both' || inputs.mode == 'report') }}
       shell: bash
       env:
         CLIENT_LOGS_URL: ${{ steps.up-client.outputs.artifact-url }}
@@ -361,7 +402,7 @@ runs:
         fi
 
     - name: "Upload logs to mclo.gs"
-      if: always()
+      if: ${{ always() && (inputs.mode == 'both' || inputs.mode == 'report') }}
       shell: bash
       env:
         HAS_SERVER: ${{ inputs.server_artifact != '' }}
@@ -397,7 +438,7 @@ runs:
         done
 
     - name: "Build failure report"
-      if: always()
+      if: ${{ always() && (inputs.mode == 'both' || inputs.mode == 'report') }}
       shell: bash
       env:
         CLIENT_LOGS_URL: ${{ steps.up-client.outputs.artifact-url }}
@@ -447,6 +488,18 @@ runs:
           } > pr-comment.md
         fi
         echo "COMMENT=1" >> "$GITHUB_ENV"
+
+    - name: "Verdict"
+      if: ${{ always() && inputs.mode == 'report' }}
+      shell: bash
+      run: |
+        # Single gate for callers: report job fails iff a side actually failed
+        # (or the server test never ran despite a serverpack being provided).
+        fail=0
+        [ "$CLIENT_RESULT" = "fail" ] && fail=1
+        [ "$SERVER_RESULT" = "fail" ] && fail=1
+        { [ "${{ inputs.server_artifact != '' }}" = "true" ] && [ "$SERVER_RESULT" = "skipped" ]; } && fail=1
+        [ "$fail" -eq 0 ]
 
     - name: "Comment PR on failure (summary)"
       if: ${{ env.COMMENT == '1' && (github.event_name == 'pull_request' || inputs.pr_number != '') }}

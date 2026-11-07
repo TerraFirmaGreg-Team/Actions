@@ -7,6 +7,7 @@
     { "type": "SEND", "message": "spark profiler start" },
     { "type": "WAIT", "timeout": 60 },
     { "type": "SEND", "message": "spark profiler stop --save-to-file" },
+    { "type": "WAIT", "timeout": 20 },
     { "type": "SEND", "message": "stop", "timeout": 180 }
   ]
 }

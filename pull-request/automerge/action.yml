@@ -1,5 +1,5 @@
 name: "Automerge PR"
-description: "Automerge PR wrapper"
+description: "Merge a PR now or enable GitHub auto-merge"
 
 inputs:
   github_token:
@@ -7,31 +7,36 @@ inputs:
   pull_request:
     required: true
   merge_method:
+    description: "merge|squash|rebase — must be allowed by the target branch ruleset"
     required: false
     default: "squash"
-  merge_labels:
+  auto_merge:
+    description: "'true' = enable GitHub auto-merge and let rulesets gate the merge; 'false' = merge immediately"
     required: false
-    default: ""
-  required_approvals:
-    required: false
-    default: "0"
+    default: "false"
   delete_branch:
     required: false
     default: "true"
-  ready_state:
-    required: false
-    default: "clean,has_hooks,unknown,unstable,blocked"
 
 runs:
   using: "composite"
   steps:
-    - name: "Automerge"
-      uses: pascalgn/automerge-action@v0.16.4
+    - name: "Merge"
+      shell: bash
       env:
-        GITHUB_TOKEN: ${{ inputs.github_token }}
-        MERGE_METHOD: ${{ inputs.merge_method }}
-        MERGE_LABELS: ${{ inputs.merge_labels }}
-        MERGE_REQUIRED_APPROVALS: ${{ inputs.required_approvals }}
-        MERGE_DELETE_BRANCH: ${{ inputs.delete_branch }}
-        MERGE_READY_STATE: ${{ inputs.ready_state }}
-        PULL_REQUEST: ${{ inputs.pull_request }}
+        GH_TOKEN: ${{ inputs.github_token }}
+        PR: ${{ inputs.pull_request }}
+        METHOD: ${{ inputs.merge_method }}
+        DEL: ${{ inputs.delete_branch == 'true' && '--delete-branch' || '' }}
+      run: |
+        if [ "${{ inputs.auto_merge }}" = "true" ]; then
+          [ "$(gh pr view "$PR" --json autoMergeRequest --jq '.autoMergeRequest != null')" = "false" ] \
+            && gh pr merge --auto "--$METHOD" "$PR"
+        else
+          # GitHub may still compute mergeable_state right after PR creation
+          for i in 1 2 3 4; do
+            gh pr merge "--$METHOD" $DEL "$PR" && break
+            [ "$i" = 4 ] && exit 1
+            sleep 5
+          done
+        fi

@@ -66,7 +66,6 @@ runs:
         mkdir -p client-unzip client
         unzip -oq pack-client/*.zip -d client-unzip
         cp -rf client-unzip/.minecraft/. client/
-        ln -sfn client run
         [ -f client/config/ftbbackups2.json ] \
           && sed -i 's/"enabled" *: *true/"enabled": false/' client/config/ftbbackups2.json || true
         [ -f client/config/ftbbackups.cfg ] \
@@ -98,7 +97,6 @@ runs:
       run: |
         mkdir -p server
         unzip -oq pack-server/*.zip -d server
-        ln -sfn server run
         [ -f server/config/ftbbackups2.json ] \
           && sed -i 's/"enabled" *: *true/"enabled": false/' server/config/ftbbackups2.json || true
         [ -f server/config/ftbbackups.cfg ] \
@@ -129,6 +127,7 @@ runs:
     - name: "Pin game JVM"
       shell: bash
       run: |
+        ln -sfn client run
         mkdir -p HeadlessMC/profiles
         cat <<EOF >> HeadlessMC/config.properties
         hmc.java.download=false
@@ -177,6 +176,7 @@ runs:
         # `server add` pins profile javaVersion from the vanilla version.json;
         # a pre-seeded patched file makes the server launch use our JVM.
         # Requires cache-mc: 'false' below — a cache restore would clobber this file.
+        ln -sfn server run
         VJ="$HOME/.minecraft/versions/${{ inputs.mc_version }}/${{ inputs.mc_version }}.json"
         mkdir -p "$(dirname "$VJ")"
         URL="$(curl -fsSL "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json" \

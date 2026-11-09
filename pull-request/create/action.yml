@@ -64,6 +64,8 @@ outputs:
     value: ${{ steps.create_pr.outputs.pr_number || steps.check_pr.outputs.number }}
   pr_url:
     value: ${{ steps.create_pr.outputs.pr_url || steps.check_pr.outputs.url }}
+  branch_exists:
+    value: ${{ steps.check_branch.outputs.exists }}
 
 runs:
   using: "composite"
@@ -76,8 +78,34 @@ runs:
         token: ${{ inputs.checkout_token || inputs.github_token || github.token }}
         fetch-depth: 0
 
+    - name: "Check source branch"
+      id: check_branch
+      uses: actions/github-script@v9.0.0
+      with:
+        github-token: ${{ inputs.github_token || github.token }}
+        script: |
+          const slug = '${{ inputs.repository }}';
+          const [owner, name] = slug ? slug.split('/') : [context.repo.owner, context.repo.repo];
+          try {
+            await github.rest.git.getRef({
+              owner,
+              repo: name,
+              ref: 'heads/${{ inputs.source_branch }}'
+            });
+            core.setOutput('exists', 'true');
+            console.log('Source branch exists');
+          } catch (error) {
+            if (error.status === 404) {
+              core.setOutput('exists', 'false');
+              console.log('Source branch not found, skipping PR creation');
+            } else {
+              core.setFailed(`Branch check failed: ${error}`);
+            }
+          }
+
     - name: "Check existing PRs"
       id: check_pr
+      if: ${{ steps.check_branch.outputs.exists == 'true' }}
       uses: actions/github-script@v9.0.0
       with:
         github-token: ${{ inputs.github_token || github.token }}
@@ -148,7 +176,7 @@ runs:
 
     - name: "Create Pull Request"
       id: create_pr
-      if: ${{ steps.check_pr.outputs.exists == 'false' }}
+      if: ${{ steps.check_branch.outputs.exists == 'true' && steps.check_pr.outputs.exists == 'false' }}
       uses: devops-infra/action-pull-request@v1.4.0
       with:
         github_token: ${{ inputs.github_token || github.token }}

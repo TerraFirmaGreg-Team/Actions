@@ -14,7 +14,9 @@ inputs:
     required: false
     default: ""
   pull_request:
-    required: true
+    description: "PR number; empty skips the merge"
+    required: false
+    default: ""
   repository:
     description: "owner/name of the PR's repo (defaults to the calling repo)"
     required: false
@@ -36,7 +38,7 @@ runs:
   steps:
     - name: "Generate GitHub App token"
       id: app
-      if: inputs.app_private_key != ''
+      if: inputs.app_private_key != '' && inputs.pull_request != ''
       uses: actions/create-github-app-token@v3
       with:
         client-id: ${{ inputs.app_client_id }}
@@ -51,6 +53,11 @@ runs:
         METHOD: ${{ inputs.merge_method }}
         DEL: ${{ inputs.delete_branch == 'true' && '--delete-branch' || '' }}
       run: |
+        if [ -z "$PR" ]; then
+          echo "No pull request provided, skipping merge"
+          exit 0
+        fi
+
         merge() { gh pr merge "--$METHOD" $DEL "$PR"; }
 
         if [ "${{ inputs.auto_merge }}" = "true" ]; then

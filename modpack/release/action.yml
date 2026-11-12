@@ -74,6 +74,21 @@ runs:
       with:
         merge-multiple: true
 
+    - name: "Format diff"
+      id: diff_format
+      if: ${{ inputs.diff != '' }}
+      shell: bash
+      env:
+        DIFF: ${{ inputs.diff }}
+      run: |
+        {
+          echo 'text<<EOF'
+          echo '```markdown'
+          echo "$DIFF"
+          echo '```'
+          echo EOF
+        } >> "$GITHUB_OUTPUT"
+
     - name: "Publish"
       id: publish
       uses: Xikaro/game-publish@main
@@ -98,7 +113,7 @@ runs:
         rollback: true
         changelog: |
           ${{ inputs.changelog }}
-          ${{ inputs.diff }}
+          ${{ steps.diff_format.outputs.text }}
         changelog-format: markdown
         retry-attempts: 2
         retry-delay: 10000

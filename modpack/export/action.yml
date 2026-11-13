@@ -140,6 +140,13 @@ runs:
         unzip -oq pack/*.zip -d pack-unzip
         cp -rf pack-unzip/.minecraft/. run/
         bash "${{ github.action_path }}/../scripts/disable-ftbbackups.sh" run
+        # Forge 47 early window spams a y/n prompt under headless CI.
+        mkdir -p run/config
+        if grep -q 'earlyWindowControl' run/config/fml.toml 2>/dev/null; then
+          sed -i 's/^ *earlyWindowControl *= *.*/earlyWindowControl = false/' run/config/fml.toml
+        else
+          echo 'earlyWindowControl = false' >> run/config/fml.toml
+        fi
 
     - name: "Setup Java"
       uses: actions/setup-java@v6.1.0

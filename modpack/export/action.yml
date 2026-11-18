@@ -34,7 +34,7 @@ inputs:
     default: "TerraFirmaGreg-Team/Game-Exporter"
   exporter_version:
     required: false
-    default: "latest"
+    default: "1.7.1"
   exporter_file:
     description: "Asset name or glob pattern (default Game-Exporter-<Platform>-*.jar)"
     required: false

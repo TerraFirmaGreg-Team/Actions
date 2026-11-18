@@ -63,10 +63,10 @@ inputs:
     description: "mode=report: outcome of the server test job"
     required: false
     default: ""
-  hmc_ref:
-    description: "HeadlessMC ref (sha/tag/branch) built from source — WAIT-step fix lives only on master"
+  hmc_version:
+    description: "HeadlessMC release tag"
     required: false
-    default: "b30131576126266c454713ac0390d57208613507"
+    default: "3.0.0-RC9"
 
 outputs:
   result:
@@ -156,43 +156,13 @@ runs:
         compgen -G "client/mods/spark*.jar" > /dev/null && [ -d client/kubejs/server_scripts ] \
           && cp "${{ github.action_path }}/data/ci-spark.js" client/kubejs/server_scripts/ || true
 
-    - name: "Setup Java 25 (hmc build)"
-      if: ${{ inputs.mode != 'report' }}
-      uses: actions/setup-java@v6.1.0
-      with:
-        distribution: temurin
-        java-version: "25"
-
-    - name: "Cache HeadlessMC"
-      if: ${{ inputs.mode != 'report' }}
-      id: hmc-cache
-      uses: actions/cache@v4
-      with:
-        path: hmc-dist
-        key: hmc-${{ inputs.hmc_ref }}
-
-    - name: "Build HeadlessMC from source"
-      if: ${{ inputs.mode != 'report' && steps.hmc-cache.outputs.cache-hit != 'true' }}
-      shell: bash
-      run: |
-        # hmc <=3.0.0-RC8 kills WAIT steps at their own duration; fix is master-only.
-        git init -q hmc-src
-        cd hmc-src
-        git remote add origin https://github.com/headlesshq/headlessmc
-        git fetch -q --depth 1 origin "${{ inputs.hmc_ref }}"
-        git checkout -q FETCH_HEAD
-        ./gradlew :headlessmc-application:quarkusBuild :headlessmc-lwjgl:build \
-          -PuberJar --no-daemon
-        mkdir -p ../hmc-dist
-        mv headlessmc-application/build/headlessmc-application-*-runner.jar ../hmc-dist/headlessmc.jar
-        mv headlessmc-lwjgl/build/libs/headlessmc-lwjgl-*-all.jar ../hmc-dist/headlessmc-lwjgl.jar
-
-    - name: "Install HeadlessMC"
+    - name: "Download HeadlessMC"
       if: ${{ inputs.mode != 'report' }}
       shell: bash
       run: |
-        cp hmc-dist/headlessmc.jar hmc-dist/headlessmc-lwjgl.jar .
-        rm -rf hmc-src
+        BASE="https://github.com/headlesshq/headlessmc/releases/download/${{ inputs.hmc_version }}"
+        curl -fsSL -o headlessmc.jar "$BASE/headlessmc.jar"
+        curl -fsSL -o headlessmc-lwjgl.jar "$BASE/headlessmc-lwjgl-${{ inputs.hmc_version }}-all.jar"
 
     - name: "Setup Java"
       if: ${{ inputs.mode != 'report' }}

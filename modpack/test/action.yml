@@ -26,6 +26,10 @@ inputs:
     description: "forge|lexforge|neoforge|fabric|none"
     required: false
     default: "forge"
+  test_mod_version:
+    description: "mc-runtime-test mod release tag ('latest' or e.g. 5.1.0)"
+    required: false
+    default: "5.1.0"
   java_version:
     required: false
     default: "17"
@@ -37,7 +41,7 @@ inputs:
     default: "true"
   headlessmc_command:
     required: false
-    default: '--jvm "-Djava.awt.headless=true -XX:ActiveProcessorCount=3"'
+    default: '--jvm "-Djava.awt.headless=true -XX:ActiveProcessorCount=3 -DMcRuntimeGameTest=false"'
   server_headlessmc_command:
     required: false
     default: '--jvm "-Djava.awt.headless=true"'
@@ -193,6 +197,7 @@ runs:
         xvfb: ${{ inputs.xvfb }}
         dummy-assets: ${{ inputs.dummy_assets }}
         mc-runtime-test: ${{ inputs.test_mod }}
+        mc-runtime-test-version: ${{ inputs.test_mod_version }}
         cache-mc: github
         download-hmc: 'false'
         headlessmc-command: ${{ inputs.headlessmc_command }}

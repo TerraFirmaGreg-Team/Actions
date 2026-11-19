@@ -1,4 +1,4 @@
-# Report helpers for modpack/test — sourced by summary/report steps.
+# Report helpers for modpack/test — sourced by report steps.
 # NOTE: no ${{ }} interpolation here; everything arrives via env vars.
 
 ERR_RE='InjectionError|Mixin apply failed|Caused by:|(/|\[)(ERROR|FATAL)'
@@ -25,23 +25,11 @@ side_status() { local v="${1^^}_RESULT"; eval "echo \${$v:-n/a}"; }
 
 logs_md() {
   local out="" u
-  u=${MCLOGS_CLIENT_LATEST:-$CLIENT_LOGS_URL}
+  u=${MCLOGS_CLIENT_LATEST:-${CLIENT_LOGS_URL:-}}
   [ -n "$u" ] && out="[client]($u)"
-  u=${MCLOGS_SERVER_LATEST:-$SERVER_LOGS_URL}
+  u=${MCLOGS_SERVER_LATEST:-${SERVER_LOGS_URL:-}}
   [ -n "$u" ] && out+="${out:+ · }[server]($u)"
   [ -n "$out" ] && echo "**Logs**: $out"
-  return 0
-}
-
-spark_ok() { # link must carry a profile key — bare 'https://spark.lucko.me/' is useless
-  [ -n "${1:-}" ] && [ "${1%/}" != "https://spark.lucko.me" ]
-}
-
-spark_md() {
-  local out="" c=${SPARK_CLIENT_LINK:-} s=${SPARK_SERVER_LINK:-}
-  spark_ok "$c" && out="[client]($c)"
-  spark_ok "$s" && out+="${out:+ · }[server]($s)"
-  [ -n "$out" ] && echo "**Spark flame graphs**: $out"
   return 0
 }
 
@@ -77,16 +65,6 @@ log_excerpt() { # $1=file $2=max $3=[head] → prints "LABEL" line then excerpt 
   if [ "$3" = "head" ]; then echo "head $2"; head -"$2" "$1"; else echo "tail $2"; tail -"$2" "$1"; fi
 }
 
-spark_stats() { # $1=latest.log → spark metrics only (TPS/CPU/mem)
-  local a
-  a=$(grep -nF 'Generating server health report' "$1" 2>/dev/null | tail -1 | cut -d: -f1 || true)
-  [ -z "$a" ] && return 0
-  tail -n "+$a" "$1" | grep -E '\[spark[/:\]]' \
-    | sed -E 's/^\[[0-9:.]+\] (\[[^]]*\] ?)+: //' \
-    | grep -E '^(Generating server health|>|[[:space:]]+[0-9])' \
-    | head -30
-}
-
 file_details() { # $1=dir $2=relpath $3=name $4=mclo env suffix $5=max $6=[errors_only|head]
   [ -s "$1/$2" ] || return 0
   case "$6" in
@@ -109,7 +87,7 @@ file_details() { # $1=dir $2=relpath $3=name $4=mclo env suffix $5=max $6=[error
 }
 
 side_details() { # $1=dir $2=artifact url — flat: bold header + one-level details
-  local st crash f block link
+  local st crash f
   st=$(side_status "$1")
   [ "$st" != "fail" ] && [ ! -d "$1" ] && return 0
   echo "**$1 — $st**${2:+ · [download $1 logs]($2)}"
@@ -133,20 +111,4 @@ side_details() { # $1=dir $2=artifact url — flat: bold header + one-level deta
   done
   file_details "$1" logs/stderr_stream.log stderr_stream.log STDERR 100 errors_only
   file_details "$1" logs/crash_assistant/crash_assistant_app.log crash_assistant.log "" 60 errors_only
-  block=$(spark_stats "$1/logs/latest.log" 2>/dev/null || true)
-  eval "link=\${SPARK_${1^^}_LINK:-}"
-  spark_ok "$link" || link=""
-  if [ -n "$block" ] || [ -n "$link" ]; then
-    echo '<details><summary>spark stats</summary>'
-    echo ''
-    if [ -n "$block" ]; then
-      echo '```text'
-      echo "$block"
-      echo '```'
-      echo ''
-    fi
-    [ -n "$link" ] && { echo "[Interactive flame graph]($link)"; echo ''; }
-    echo '</details>'
-    echo ''
-  fi
 }

@@ -61,8 +61,11 @@ runs:
         merge() { gh pr merge "--$METHOD" $DEL "$PR" || gh pr merge --admin "--$METHOD" $DEL "$PR"; }
 
         if [ "${{ inputs.auto_merge }}" = "true" ]; then
+          draft="$(gh pr view "$PR" --json isDraft --jq .isDraft)"
           enabled="$(gh pr view "$PR" --json autoMergeRequest --jq '.autoMergeRequest != null')"
-          if [ "$enabled" = "true" ]; then
+          if [ "$draft" = "true" ]; then
+            echo "PR #$PR is a draft — auto-merge skipped (re-run when marked ready)"
+          elif [ "$enabled" = "true" ]; then
             echo "Auto-merge is already enabled"
           else
             gh pr merge --auto "--$METHOD" $DEL "$PR"
